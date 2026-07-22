@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SMART FARM PRO ULTIMATE V35</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1b5e20">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            transition: background 0.3s ease;
+        }
+
+        body.dark-mode {
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: #e0e0e0;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            flex: 1;
+        }
+
+        .theme-toggle {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 18px;
+        }
+
+        .theme-toggle:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .login-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .login-box {
+            background: white;
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 400px;
+        }
+
+        body.dark-mode .login-box {
+            background: #2d2d2d;
+            color: #e0e0e0;
+        }
+
+        .login-box h2 {
+            margin-bottom: 30px;
+            color: #1b5e20;
+            text-align: center;
+        }
+
+        body.dark-mode .login-box h2 {
+            color: #4caf50;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        body.dark-mode .form-group input {
+            background: #3d3d3d;
+            color: #e0e0e0;
+            border-color: #555;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #1b5e20;
+        }
+
+        .login-btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(27, 94, 32, 0.3);
+        }
+
+        #dashboard {
+            display: none;
+            padding: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .card {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        body.dark-mode .card {
+            background: #2d2d2d;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        }
+
+        .card h2 {
+            color: #1b5e20;
+            margin-bottom: 15px;
+            font-size: 20px;
+        }
+
+        body.dark-mode .card h2 {
+            color: #4caf50;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        body.dark-mode .status-item {
+            border-bottom-color: #444;
+        }
+
+        .status-item:last-child {
+            border-bottom: none;
+        }
+
+        .status-label {
+            font-weight: 600;
+            color: #666;
+        }
+
+        body.dark-mode .status-label {
+            color: #aaa;
+        }
+
+        .status-value {
+            color: #1b5e20;
+            font-weight: 700;
+        }
+
+        body.dark-mode .status-value {
+            color: #4caf50;
+        }
+
+        .control-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .btn {
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 14px;
+        }
+
+        .btn-on {
+            background: #4caf50;
+            color: white;
+        }
+
+        .btn-on:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+        }
+
+        .btn-off {
+            background: #f44336;
+            color: white;
+        }
+
+        .btn-off:hover {
+            background: #da190b;
+            transform: translateY(-2px);
+        }
+
+        .btn-auto {
+            background: #2196F3;
+            color: white;
+        }
+
+        .btn-auto:hover {
+            background: #0b7dda;
+            transform: translateY(-2px);
+        }
+
+        .btn-manual {
+            background: #ff9800;
+            color: white;
+        }
+
+        .btn-manual:hover {
+            background: #e68900;
+            transform: translateY(-2px);
+        }
+
+        .timer-input {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .timer-input input {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        body.dark-mode .timer-input input {
+            background: #3d3d3d;
+            color: #e0e0e0;
+            border-color: #555;
+        }
+
+        .timer-input button {
+            padding: 10px 20px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .timer-input button:hover {
+            background: #0b7dda;
+        }
+
+        .logs-container {
+            max-height: 300px;
+            overflow-y: auto;
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+
+        body.dark-mode .logs-container {
+            background: #3d3d3d;
+        }
+
+        .log-entry {
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+            font-size: 12px;
+            color: #666;
+        }
+
+        body.dark-mode .log-entry {
+            border-bottom-color: #555;
+            color: #aaa;
+        }
+
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+
+        .weather-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            font-size: 14px;
+        }
+
+        .ai-status {
+            padding: 15px;
+            background: #e8f5e9;
+            border-left: 4px solid #4caf50;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+
+        body.dark-mode .ai-status {
+            background: #1b5e20;
+            border-left-color: #4caf50;
+        }
+
+        .logout-btn {
+            background: #f44336;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            margin-top: 20px;
+            width: 100%;
+        }
+
+        .logout-btn:hover {
+            background: #da190b;
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            background: #4caf50;
+            color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            display: none;
+            z-index: 1000;
+        }
+
+        .notification.show {
+            display: block;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 20px;
+            }
+
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .control-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🌱 SMART FARM PRO ULTIMATE V35</h1>
+        <button class="theme-toggle" onclick="toggleTheme()">🌙</button>
+    </div>
+
+    <div class="login-container" id="login">
+        <div class="login-box">
+            <h2>Admin Login</h2>
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" placeholder="admin@smartfarm.local">
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" placeholder="Enter password">
+            </div>
+            <button class="login-btn" onclick="login()">เข้าสู่ระบบ</button>
+        </div>
+    </div>
+
+    <div id="dashboard">
+        <div class="dashboard-grid">
+            <!-- System Status Card -->
+            <div class="card">
+                <h2>📊 System Status</h2>
+                <div class="status-item">
+                    <span class="status-label">Device:</span>
+                    <span class="status-value" id="device">Offline</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Mode:</span>
+                    <span class="status-value" id="mode">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">IP Address:</span>
+                    <span class="status-value" id="ip">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Time:</span>
+                    <span class="status-value" id="time">-</span>
+                </div>
+            </div>
+
+            <!-- Relay Control Card -->
+            <div class="card">
+                <h2>🔌 Relay Control</h2>
+                <div class="control-grid">
+                    <button class="btn btn-on" onclick="control('pump', true)">Pump ON</button>
+                    <button class="btn btn-off" onclick="control('pump', false)">Pump OFF</button>
+                    <button class="btn btn-on" onclick="control('zone1', true)">Z1 ON</button>
+                    <button class="btn btn-off" onclick="control('zone1', false)">Z1 OFF</button>
+                    <button class="btn btn-on" onclick="control('zone2', true)">Z2 ON</button>
+                    <button class="btn btn-off" onclick="control('zone2', false)">Z2 OFF</button>
+                    <button class="btn btn-on" onclick="control('light', true)">Light ON</button>
+                    <button class="btn btn-off" onclick="control('light', false)">Light OFF</button>
+                </div>
+            </div>
+
+            <!-- Mode Control Card -->
+            <div class="card">
+                <h2>⚙️ Mode Control</h2>
+                <div class="control-grid">
+                    <button class="btn btn-auto" onclick="setMode('auto')">AUTO Mode</button>
+                    <button class="btn btn-manual" onclick="setMode('manual')">MANUAL Mode</button>
+                </div>
+            </div>
+
+            <!-- Timer Card -->
+            <div class="card">
+                <h2>⏱️ Countdown Timer</h2>
+                <div class="status-item">
+                    <span class="status-label">Status:</span>
+                    <span class="status-value" id="timerStatus">Idle</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Remaining:</span>
+                    <span class="status-value" id="timerRemaining">0 min</span>
+                </div>
+                <div class="timer-input">
+                    <input type="number" id="timerDuration" min="1" max="120" value="5" placeholder="Duration (1-120 min)">
+                    <button onclick="startTimer()">Start</button>
+                    <button onclick="stopTimer()" style="background: #f44336;">Stop</button>
+                </div>
+            </div>
+
+            <!-- Soil Moisture Card -->
+            <div class="card">
+                <h2>💧 Soil Moisture</h2>
+                <div class="status-item">
+                    <span class="status-label">Value:</span>
+                    <span class="status-value" id="soilMoisture">0</span>
+                </div>
+                <div style="width: 100%; height: 20px; background: #ddd; border-radius: 10px; margin-top: 10px; overflow: hidden;">
+                    <div id="soilMoistureBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #4caf50, #ff9800); transition: width 0.3s;"></div>
+                </div>
+            </div>
+
+            <!-- AI Watering Card -->
+            <div class="card">
+                <h2>🤖 AI Auto Watering</h2>
+                <div class="status-item">
+                    <span class="status-label">Status:</span>
+                    <span class="status-value" id="aiStatus">Idle</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Last Decision:</span>
+                    <span class="status-value" id="lastAIDecision">N/A</span>
+                </div>
+                <div class="ai-status">
+                    <strong>Last Watering:</strong> <span id="lastWatering">Never</span>
+                </div>
+            </div>
+
+            <!-- Weather Card -->
+            <div class="card">
+                <h2>🌤️ Weather</h2>
+                <div class="weather-item">
+                    <span>Temperature:</span>
+                    <span id="weatherTemp">-</span>
+                </div>
+                <div class="weather-item">
+                    <span>Humidity:</span>
+                    <span id="weatherHumidity">-</span>
+                </div>
+                <div class="weather-item">
+                    <span>Rain (1h):</span>
+                    <span id="weatherRain">-</span>
+                </div>
+                <div class="weather-item">
+                    <span>Rain Prob:</span>
+                    <span id="weatherRainProb">-</span>
+                </div>
+                <div class="weather-item">
+                    <span>Wind Speed:</span>
+                    <span id="weatherWind">-</span>
+                </div>
+            </div>
+
+            <!-- Logs Card -->
+            <div class="card" style="grid-column: span 1;">
+                <h2>📋 System Logs</h2>
+                <div class="logs-container" id="logsContainer">
+                    <div class="log-entry">Waiting for logs...</div>
+                </div>
+            </div>
+        </div>
+
+        <button class="logout-btn" onclick="logout()">Logout</button>
+    </div>
+
+    <div class="notification" id="notification"></div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let refreshInterval;
+
+        function toggleTheme() {
+            document.body.classList.toggle('dark-mode');
+            localStorage.setItem('theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light');
+            updateThemeButton();
+        }
+
+        function updateThemeButton() {
+            const btn = document.querySelector('.theme-toggle');
+            btn.textContent = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
+        }
+
+        function loadTheme() {
+            const theme = localStorage.getItem('theme');
+            if (theme === 'dark') {
+                document.body.classList.add('dark-mode');
+            }
+            updateThemeButton();
+        }
+
+        function login() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            if (!email || !password) {
+                showNotification('Please enter email and password', 'error');
+                return;
+            }
+
+            fetch(`${API_BASE}/api/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'authenticated') {
+                    localStorage.setItem('userRole', data.role);
+                    document.getElementById('login').style.display = 'none';
+                    document.getElementById('dashboard').style.display = 'block';
+                    loadStatus();
+                    refreshInterval = setInterval(loadStatus, 5000);
+                    showNotification('Login successful!', 'success');
+                } else {
+                    showNotification('Login failed: ' + (data.error || 'Unknown error'), 'error');
+                }
+            })
+            .catch(e => showNotification('Error: ' + e.message, 'error'));
+        }
+
+        function logout() {
+            localStorage.removeItem('userRole');
+            clearInterval(refreshInterval);
+            document.getElementById('login').style.display = 'flex';
+            document.getElementById('dashboard').style.display = 'none';
+            document.getElementById('email').value = '';
+            document.getElementById('password').value = '';
+            showNotification('Logged out successfully', 'success');
+        }
+
+        function loadStatus() {
+            fetch(`${API_BASE}/api/status`)
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('device').textContent = 'Online';
+                    document.getElementById('mode').textContent = data.mode || '-';
+                    document.getElementById('ip').textContent = data.ip || '-';
+                    document.getElementById('time').textContent = new Date().toLocaleString('th-TH');
+                })
+                .catch(e => document.getElementById('device').textContent = 'Offline');
+
+            fetch(`${API_BASE}/api/timer`)
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('timerStatus').textContent = data.running ? 'Running' : 'Idle';
+                    document.getElementById('timerRemaining').textContent = data.remaining_minutes + ' min';
+                })
+                .catch(e => {});
+
+            fetch(`${API_BASE}/api/logs`)
+                .then(r => r.json())
+                .then(data => {
+                    const logsContainer = document.getElementById('logsContainer');
+                    logsContainer.innerHTML = '';
+                    if (Array.isArray(data)) {
+                        data.slice(-10).reverse().forEach(log => {
+                            const entry = document.createElement('div');
+                            entry.className = 'log-entry';
+                            entry.textContent = new Date(log.timestamp).toLocaleTimeString('th-TH') + ': ' + log.message;
+                            logsContainer.appendChild(entry);
+                        });
+                    }
+                })
+                .catch(e => {});
+        }
+
+        function control(device, state) {
+            fetch(`${API_BASE}/api/${device === 'pump' ? 'pump' : device === 'zone1' || device === 'zone2' ? 'zone' : 'pump'}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(device === 'zone1' || device === 'zone2' ? 
+                    { zone: device === 'zone1' ? 1 : 2, state } : 
+                    { state })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'ok') {
+                    showNotification(device + ' turned ' + (state ? 'ON' : 'OFF'), 'success');
+                    loadStatus();
+                } else {
+                    showNotification('Error: ' + (data.error || 'Unknown error'), 'error');
+                }
+            })
+            .catch(e => showNotification('Error: ' + e.message, 'error'));
+        }
+
+        function setMode(mode) {
+            fetch(`${API_BASE}/api/pump`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ auto: mode === 'auto' })
+            })
+            .then(r => r.json())
+            .then(data => {
+                showNotification('Mode set to ' + mode.toUpperCase(), 'success');
+                loadStatus();
+            })
+            .catch(e => showNotification('Error: ' + e.message, 'error'));
+        }
+
+        function startTimer() {
+            const duration = parseInt(document.getElementById('timerDuration').value);
+            if (duration < 1 || duration > 120) {
+                showNotification('Duration must be between 1 and 120 minutes', 'error');
+                return;
+            }
+            fetch(`${API_BASE}/api/timer`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'start', duration })
+            })
+            .then(r => r.json())
+            .then(data => {
+                showNotification('Timer started for ' + duration + ' minutes', 'success');
+                loadStatus();
+            })
+            .catch(e => showNotification('Error: ' + e.message, 'error'));
+        }
+
+        function stopTimer() {
+            fetch(`${API_BASE}/api/timer`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'stop' })
+            })
+            .then(r => r.json())
+            .then(data => {
+                showNotification('Timer stopped', 'success');
+                loadStatus();
+            })
+            .catch(e => showNotification('Error: ' + e.message, 'error'));
+        }
+
+        function showNotification(message, type) {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.style.background = type === 'error' ? '#f44336' : '#4caf50';
+            notification.classList.add('show');
+            setTimeout(() => notification.classList.remove('show'), 3000);
+        }
+
+        loadTheme();
+    </script>
+</body>
+</html>
