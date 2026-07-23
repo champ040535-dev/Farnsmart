@@ -24,21 +24,15 @@
 #include <DHT.h>
 
 // ===== DHT11 SENSOR =====
-// Change DHT11_PIN to the GPIO connected to the DHT11 DATA pin.
-// Default: D5 (GPIO14). Avoid using a GPIO already assigned to a relay.
-#ifndef DHT11_PIN
-#define DHT11_PIN D5
-#endif
-#ifndef DHTTYPE
+#define DHTPIN D4
 #define DHTTYPE DHT11
-#endif
 
-DHT dht(DHT11_PIN, DHTTYPE);
-float dhtTemperature = NAN;
-float dhtHumidity = NAN;
+DHT dht(DHTPIN, DHTTYPE);
+float temperature = NAN;
+float humidity = NAN;
 bool dhtAvailable = false;
 unsigned long lastDHTRead = 0;
-const unsigned long DHT_READ_INTERVAL_MS = 2500;
+const unsigned long DHT_READ_INTERVAL_MS = 2000;
 
 
 #include <Wire.h>
@@ -531,10 +525,18 @@ void initRestAPI() {
     request->send(200, "application/json", response);
   });
 
-  // GET /api/sensors (Placeholder)
+  // GET /api/sensors
   server.on("/api/sensors", HTTP_GET, [](AsyncWebServerRequest *request) {
     StaticJsonDocument<256> doc;
-    doc["message"] = "Sensors data will be implemented in Phase 2";
+    doc["soil_moisture"] = soilMoistureValue;
+    if (dhtAvailable) {
+      doc["temperature"] = temperature;
+      doc["humidity"] = humidity;
+    } else {
+      doc["temperature"] = nullptr;
+      doc["humidity"] = nullptr;
+    }
+    doc["dht11_available"] = dhtAvailable;
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
@@ -789,14 +791,28 @@ void readDHT11() {
 
   if (isnan(h) || isnan(t)) {
     dhtAvailable = false;
-    dhtTemperature = NAN;
-    dhtHumidity = NAN;
+    Serial.println(F("DHT11 Read Failed"));
     return;
   }
 
   dhtAvailable = true;
-  dhtTemperature = t;
-  dhtHumidity = h;
+  temperature = t;
+  humidity = h;
+
+  Serial.print(F("Temperature: "));
+  Serial.print(temperature, 1);
+  Serial.println(F(" C"));
+  Serial.print(F("Humidity: "));
+  Serial.print(humidity, 1);
+  Serial.println(F(" %"));
+
+  if (mqtt.connected()) {
+    char value[8];
+    dtostrf(temperature, 0, 1, value);
+    mqtt.publish("smartfarm/temperature", value, true);
+    dtostrf(humidity, 0, 1, value);
+    mqtt.publish("smartfarm/humidity", value, true);
+  }
 }
 
 
@@ -807,8 +823,8 @@ String dht11Json() {
   if (!dhtAvailable) {
     return String("\"temperature\":null,\"humidity\":null,\"available\":false");
   }
-  String json = "\"temperature\":" + String(dhtTemperature, 1);
-  json += ",\"humidity\":" + String(dhtHumidity, 1);
+  String json = "\"temperature\":" + String(temperature, 1);
+  json += ",\"humidity\":" + String(humidity, 1);
   json += ",\"available\":true";
   return json;
 }
@@ -1880,6 +1896,11 @@ String relayStatus(){
   doc["mode"] =
     autoMode ? "AUTO":"MANUAL";
 
+  if (dhtAvailable) {
+    doc["sensors"]["temperature"] = temperature;
+    doc["sensors"]["humidity"] = humidity;
+  }
+
 
   String output;
 
@@ -2423,6 +2444,12 @@ String deviceState(){
 
   doc["mode"] =
     autoMode ? "AUTO":"MANUAL";
+
+
+  if (dhtAvailable) {
+    doc["sensors"]["temperature"] = temperature;
+    doc["sensors"]["humidity"] = humidity;
+  }
 
 
   String output;
@@ -3199,6 +3226,12 @@ String createFirebaseJSON(){
 
   doc["mode"] =
     autoMode ? "AUTO":"MANUAL";
+
+
+  if (dhtAvailable) {
+    doc["sensors"]["temperature"] = temperature;
+    doc["sensors"]["humidity"] = humidity;
+  }
 
 
   String output;
@@ -4473,6 +4506,9 @@ void setupFinal(){
   bootMessage();
 
 
+  dht.begin();
+
+
   initializeSystem();
 
 
@@ -5253,6 +5289,9 @@ void productionTask(){
 void applicationLoop(){
 
 
+  readDHT11();
+
+
   productionTask();
 
 
@@ -5266,6 +5305,9 @@ void applicationStart(){
 
 
   bootMessage();
+
+
+  dht.begin();
 
 
   initializeSystem();
@@ -5348,8 +5390,7 @@ Features:
 /*
 DHT11 integration notes:
 - Sensor type: DHT11
-- Default DATA pin: D5 (GPIO14)
-- Change DHT11_PIN if your physical wiring uses another GPIO.
+- Data pin: D4
 - The DHT11 is for air temperature and relative humidity.
 - Soil moisture should remain the primary input for irrigation decisions.
 - The helper dht11Json() is available to expose readings from the existing
