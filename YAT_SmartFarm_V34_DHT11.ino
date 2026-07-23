@@ -134,7 +134,9 @@ int logCount = 0;
 int logHead = 0; // Points to the next available slot
 
 void sendTelegramMessage(String message) {
-  if (BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN" || CHAT_ID == "YOUR_TELEGRAM_CHAT_ID") {
+  if (BOT_TOKEN == "8667185180:AAEaPMQFRUW7AhqgSFdMgMdzzZTAY4OIbj" || CHAT_ID == "8698930095"
+   
+  ") {
     Serial.println("Telegram Bot Token or Chat ID not set. Skipping Telegram message.");
     return;
   }
