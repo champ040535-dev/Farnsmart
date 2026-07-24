@@ -3,21 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YAT Smart Farm V34 FINAL</title>
-    <link rel="manifest" href="manifest.json">
+    <title>YAT Smart Farm V34 FIXED</title>
     <meta name="theme-color" content="#1b5e20">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/recharts@2.12.0/dist/umd/Recharts.min.js"></script>
     <script>
       tailwind.config = {
         darkMode: 'class',
-        theme: {
-          extend: {
-            colors: {
+        theme: { extend: { colors: {
               farm: { DEFAULT: '#1b5e20', light: '#2e7d32', accent: '#4caf50', bg: '#e8f5e9', danger: '#f44336', warn: '#ff9800', info: '#2196F3' }
-            }
-          }
-        }
+        } } }
       }
     </script>
     <style>
@@ -51,22 +48,21 @@
 
 <script>
 // ========== CONFIG ==========
-const API_BASE = window.location.origin;
-const BACKEND_BASE = window.location.origin;
-
-// Backend function URL helpers
-function fnUrl(name) {
-  return `${API_BASE}/api/functions/${name}`;
-}
+// ESP8266 direct REST API — change to your device IP
+// If served FROM the ESP8266 itself, window.location.origin works automatically.
+const ESP_BASE = window.location.origin; // ESP8266 serves this page on port 80
+const POLL_INTERVAL = 3000; // 3s polling for real-time updates
+const BACKEND_BASE = ''; // Optional: Base44 backend URL for cloud features
 
 // ========== STATE ==========
 let state = {
   currentPage: 'dashboard',
   user: null,
-  theme: 'light',
+  theme: localStorage.getItem('theme') || 'light',
   language: 'th',
-  dashboardData: null,
-  devices: [],
+  espData: null,         // Raw data from ESP8266 /api/status
+  espOnline: false,
+  espLastSeen: null,
   logs: [],
   automations: [],
   finance: null,
@@ -75,7 +71,21 @@ let state = {
   settings: null,
   refreshTimer: null,
   chartRange: '24h',
+  chartHistory: [],      // Rolling history for charts
+  pendingCommands: new Set(), // Prevent duplicate commands
 };
+
+// ========== NAV ITEMS ==========
+const NAV_ITEMS = [
+  { id: 'dashboard', label: 'แดชบอร์ด', icon: '📊', perm: 'view' },
+  { id: 'devices', label: 'อุปกรณ์', icon: '📡', perm: 'view' },
+  { id: 'automation', label: 'อัตโนมัติ', icon: '⚙️', perm: 'control' },
+  { id: 'finance', label: 'การเงิน', icon: '💰', perm: 'view' },
+  { id: 'ota', label: 'OTA', icon: '⬆️', perm: 'manage' },
+  { id: 'notifications', label: 'แจ้งเตือน', icon: '🔔', perm: 'view' },
+  { id: 'logs', label: 'บันทึก', icon: '📋', perm: 'view_logs' },
+  { id: 'settings', label: 'ตั้งค่า', icon: '🔧', perm: 'manage' },
+];
 
 // ========== UTILITIES ==========
 function $(sel) { return document.querySelector(sel); }
@@ -90,17 +100,52 @@ function toast(message, type = 'success') {
   el._t = setTimeout(() => el.classList.add('hidden'), 3000);
 }
 
+// Direct REST call to ESP8266
+async function espGet(path) {
+  try {
+    const res = await fetch(`${ESP_BASE}${path}`, { method: 'GET', signal: (() => { const c = new AbortController(); setTimeout(() => c.abort(), 5000); return c.signal; })() });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (e) {
+    console.error(`ESP GET ${path}:`, e);
+    return null;
+  }
+}
+
+async function espPost(path, body) {
+  try {
+    const res = await fetch(`${ESP_BASE}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: (() => { const c = new AbortController(); setTimeout(() => c.abort(), 5000); return c.signal; })()
+    });
+    return await res.json();
+  } catch (e) {
+    console.error(`ESP POST ${path}:`, e);
+    return { error: e.message };
+  }
+}
+
+// Optional Base44 backend call
 async function apiCall(name, method = 'GET', body = null) {
+  if (!BACKEND_BASE) return mockBackendResponse(name);
   try {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
     if (body) opts.body = JSON.stringify(body);
-    const res = await fetch(fnUrl(name), opts);
-    const data = await res.json();
-    return data;
+    const res = await fetch(`${BACKEND_BASE}/api/functions/${name}`, opts);
+    return await res.json();
   } catch (e) {
-    console.error(`API ${name} error:`, e);
+    console.error(`API ${name}:`, e);
     return { status: 'error', error: e.message };
   }
+}
+
+function mockBackendResponse(name) {
+  // Return mock data when no backend is configured
+  if (name === 'getDashboardData') return null;
+  if (name === 'authApi') return { status: 'ok', role: 'admin', email: 'admin@local' };
+  return { status: 'ok' };
 }
 
 function formatTime(iso) {
@@ -108,9 +153,9 @@ function formatTime(iso) {
   try { return new Date(iso).toLocaleString('th-TH'); } catch(e) { return iso; }
 }
 
-function timeAgo(iso) {
-  if (!iso) return '-';
-  const diff = Date.now() - new Date(iso).getTime();
+function timeAgo(ts) {
+  if (!ts) return '-';
+  const diff = Date.now() - ts;
   if (diff < 60000) return `${Math.floor(diff/1000)}s ago`;
   if (diff < 3600000) return `${Math.floor(diff/60000)}m ago`;
   if (diff < 86400000) return `${Math.floor(diff/3600000)}h ago`;
@@ -125,73 +170,53 @@ function toggleTheme() {
 }
 
 function applyTheme() {
-  if (state.theme === 'dark') {
-    document.documentElement.classList.add('dark');
+  if (state.theme === 'dark') document.documentElement.classList.add('dark');
+  else document.documentElement.classList.remove('dark');
+}
+
+// ========== ESP8266 DATA FETCHING ==========
+async function fetchESPStatus() {
+  const data = await espGet('/api/status');
+  if (data) {
+    state.espData = data;
+    state.espOnline = true;
+    state.espLastSeen = Date.now();
+
+    // Build chart history (keep last 60 points = ~3 min at 3s polling)
+    state.chartHistory.push({
+      time: new Date().toLocaleTimeString('th-TH'),
+      soilMoisture: data.soilMoisture || 0,
+      temperature: data.weather?.temperature || 0,
+      humidity: data.weather?.humidity || 0,
+    });
+    if (state.chartHistory.length > 60) state.chartHistory.shift();
+
+    // Update UI if on dashboard
+    if (state.currentPage === 'dashboard') updateDashboardLive();
   } else {
-    document.documentElement.classList.remove('dark');
+    if (state.espOnline) {
+      state.espOnline = false;
+      toast('ESP8266 Offline!', 'error');
+      if (state.currentPage === 'dashboard') updateDashboardLive();
+    }
   }
 }
 
-// ========== MOCK DATA GENERATOR ==========
-function mockDashboardData() {
-  const now = new Date();
-  const temp = 28 + Math.sin(Date.now() / 3600000) * 5 + Math.random() * 2;
-  const humidity = 65 + Math.sin(Date.now() / 3600000) * 10 + Math.random() * 3;
-  const soil = 45 + Math.sin(Date.now() / 7200000) * 15 + Math.random() * 3;
-  
-  return {
-    status: 'ok',
-    cards: {
-      temperature: +temp.toFixed(1),
-      humidity: +humidity.toFixed(1),
-      soilMoisture: +soil.toFixed(0),
-      light: Math.floor(20000 + Math.random() * 30000),
-      waterLevel: Math.floor(70 + Math.random() * 30),
-      rain: Math.random() > 0.8,
-      battery: Math.floor(75 + Math.random() * 25),
-      pumpStatus: Math.random() > 0.5,
-      valveStatus: Math.random() > 0.7,
-      relayStatus: [
-        { name: 'pump', state: Math.random() > 0.5 },
-        { name: 'zone1', state: Math.random() > 0.7 },
-        { name: 'zone2', state: false },
-        { name: 'light', state: false }
-      ],
-      onlineDevices: 2,
-      offlineDevices: 0,
-      totalDevices: 2,
-      lastUpdate: now.toISOString(),
-      weather: { temperature: +temp.toFixed(1), humidity: +humidity.toFixed(1), rain: Math.random() > 0.8, rainProbability: Math.floor(Math.random() * 30), windSpeed: +(Math.random() * 15).toFixed(1) }
-    },
-    charts: {
-      '24h': Array.from({length: 24}, (_, i) => ({
-        time: `${String(i).padStart(2,'0')}:00`,
-        temperature: +(25 + Math.sin(i / 3) * 5 + Math.random() * 2).toFixed(1),
-        humidity: +(65 + Math.sin(i / 4) * 10 + Math.random() * 3).toFixed(1),
-        soilMoisture: +(45 + Math.sin(i / 5) * 15 + Math.random() * 3).toFixed(0),
-        light: +(i > 6 && i < 18 ? 30000 + Math.random() * 30000 : Math.random() * 1000).toFixed(0)
-      })),
-      '7d': Array.from({length: 7}, (_, i) => ({
-        date: new Date(now - (6-i) * 86400000).toLocaleDateString('th-TH', { weekday: 'short' }),
-        temperature: +(26 + Math.random() * 6).toFixed(1),
-        humidity: +(65 + Math.random() * 15).toFixed(1),
-        soilMoisture: +(40 + Math.random() * 20).toFixed(0)
-      })),
-      '30d': Array.from({length: 30}, (_, i) => ({
-        date: new Date(now - (29-i) * 86400000).toLocaleDateString('th-TH', { day: 'numeric' }),
-        temperature: +(26 + Math.random() * 6).toFixed(1),
-        humidity: +(65 + Math.random() * 15).toFixed(1),
-        soilMoisture: +(40 + Math.random() * 20).toFixed(0)
-      }))
-    },
-    devices: [
-      { id: 'd1', name: 'ESP8266-Farm-01', online: true, status: 'online', lastSeen: now.toISOString(), firmwareVersion: 'V34', ipAddress: '192.168.1.101', macAddress: 'AA:BB:CC:DD:EE:01', wifiRSSI: -45, battery: 89, relays: [{name:'pump',state:true},{name:'zone1',state:false},{name:'zone2',state:false},{name:'light',state:false}], location: {name:'สวนหลัก', lat:13.7563, lng:100.5014}, timer: {running:true, remaining:3, duration:5} },
-      { id: 'd2', name: 'ESP8266-Farm-02', online: true, status: 'online', lastSeen: now.toISOString(), firmwareVersion: 'V34', ipAddress: '192.168.1.102', macAddress: 'AA:BB:CC:DD:EE:02', wifiRSSI: -52, battery: 76, relays: [{name:'pump',state:false},{name:'zone1',state:true},{name:'zone2',state:false},{name:'light',state:false}], location: {name:'สวนหลัง', lat:13.7570, lng:100.5020}, timer: {running:false, remaining:0, duration:0} }
-    ]
-  };
+async function fetchESPLogs() {
+  const data = await espGet('/api/logs');
+  if (data && Array.isArray(data)) {
+    state.logs = data.map((l, i) => ({
+      timestamp: l.timestamp,
+      type: 'info',
+      deviceId: 'YAT-FARM-001',
+      message: l.message,
+      action: '',
+      result: 'success'
+    }));
+  }
 }
 
-// ========== LOGIN PAGE ==========
+// ========== LOGIN ==========
 function renderLogin() {
   return `
     <div class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-green-100 to-green-300 dark:from-gray-800 dark:to-gray-900">
@@ -199,32 +224,24 @@ function renderLogin() {
         <div class="text-center mb-8">
           <div class="text-5xl mb-2">🌱</div>
           <h1 class="text-2xl font-bold text-farm">YAT Smart Farm</h1>
-          <p class="text-sm text-gray-500 dark:text-gray-400">V34 FINAL — Smart Farm Platform</p>
+          <p class="text-sm text-gray-500">V34 FIXED — Smart Farm Controller</p>
         </div>
         <div class="space-y-4">
           <div>
-            <label class="block text-sm font-medium mb-1">อีเมล (Email)</label>
-            <input id="loginEmail" type="email" placeholder="admin@yatfarm.com" value=""
+            <label class="block text-sm font-medium mb-1">อีเมล</label>
+            <input id="loginEmail" type="email" placeholder="admin@yatfarm.com"
               class="w-full px-4 py-3 rounded-lg border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm">
           </div>
           <div>
-            <label class="block text-sm font-medium mb-1">รหัสผ่าน (Password)</label>
+            <label class="block text-sm font-medium mb-1">รหัสผ่าน</label>
             <input id="loginPassword" type="password" placeholder="••••••••"
               class="w-full px-4 py-3 rounded-lg border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm">
-          </div>
-          <div class="flex items-center gap-2">
-            <input id="rememberMe" type="checkbox" class="w-4 h-4 accent-green-600">
-            <label class="text-sm">จดจำการเข้าสู่ระบบ</label>
           </div>
           <button onclick="doLogin()" class="w-full py-3 bg-gradient-to-r from-farm to-farm-light text-white rounded-lg font-semibold hover:shadow-lg transition-all">
             เข้าสู่ระบบ
           </button>
-          <button onclick="showForgotPassword()" class="w-full text-sm text-gray-500 hover:text-farm transition-colors">
-            ลืมรหัสผ่าน?
-          </button>
-        </div>
-        <div class="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700 text-center text-xs text-gray-400">
-          Roles: Admin · Manager · Farmer · Viewer
+          <p class="text-center text-xs text-gray-400">เข้าสู่ระบบด้วยบัญชี ESP8266 หรือคลิกเพื่อเข้าใช้แบบ Demo</p>
+          <button onclick="demoLogin()" class="w-full py-2 text-sm text-farm hover:underline">เข้าใช้แบบ Demo (ไม่ต้องล็อกอิน)</button>
         </div>
       </div>
     </div>
@@ -232,69 +249,46 @@ function renderLogin() {
 }
 
 async function doLogin() {
-  const email = $('#loginEmail').value.trim();
-  const password = $('#loginPassword').value;
-  const remember = $('#rememberMe').checked;
-  
-  if (!email || !password) { toast('กรุณากรอกอีเมลและรหัสผ่าน', 'error'); return; }
-  
-  toast('กำลังเข้าสู่ระบบ...', 'info');
-  const result = await apiCall('authApi', 'POST', { action: 'login', email, password, remember });
-  
-  if (result.status === 'authenticated' || result.status === 'ok') {
-    state.user = { email, role: result.role || 'admin', permissions: result.permissions || {} };
-    if (remember) localStorage.setItem('user', JSON.stringify(state.user));
-    else sessionStorage.setItem('user', JSON.stringify(state.user));
-    toast('เข้าสู่ระบบสำเร็จ!', 'success');
-    render();
-    loadDashboardData();
+  const email = $('#loginEmail')?.value || '';
+  const password = $('#loginPassword')?.value || '';
+  // Try ESP8266 login first
+  const result = await espPost('/api/login', { email, password });
+  if (result && result.status === 'ok') {
+    state.user = { email, role: result.role || 'admin' };
+    localStorage.setItem('user', JSON.stringify(state.user));
+    startApp();
   } else {
-    // Fallback: allow demo login
-    if (email.includes('admin') || email === 'klanarong156@gmail.com') {
-      state.user = { email, role: 'admin', permissions: { dashboard:true, devices:true, control:true, automation:true, finance:true, ota:true, settings:true, logs:true, deleteDevice:true } };
-      localStorage.setItem('user', JSON.stringify(state.user));
-      toast('เข้าสู่ระบบสำเร็จ (Demo Mode)', 'success');
-      render();
-      loadDashboardData();
-    } else {
-      toast('เข้าสู่ระบบล้มเหลว: ' + (result.error || 'ไม่ทราบสาเหตุ'), 'error');
-    }
+    // Fallback to demo
+    toast('ล็อกอินผ่าน ESP8266 ไม่สำเร็จ — เข้าแบบ Demo', 'warn');
+    demoLogin();
   }
 }
 
-function showForgotPassword() {
-  const email = $('#loginEmail').value.trim();
-  if (!email) { toast('กรุณากรอกอีเมลก่อน', 'warn'); return; }
-  toast('ส่งอีเมลรีเซ็ตรหัสผ่านแล้ว (หากบัญชีมีอยู่)', 'info');
+function demoLogin() {
+  state.user = { email: 'demo@local', role: 'admin' };
+  localStorage.setItem('user', JSON.stringify(state.user));
+  startApp();
 }
 
 function doLogout() {
-  apiCall('authApi', 'POST', { action: 'logout' });
   state.user = null;
   localStorage.removeItem('user');
-  sessionStorage.removeItem('user');
   if (state.refreshTimer) clearInterval(state.refreshTimer);
-  toast('ออกจากระบบแล้ว', 'success');
   render();
 }
 
-// ========== NAVIGATION ==========
-const NAV_ITEMS = [
-  { id: 'dashboard', label: 'แดชบอร์ด', icon: '📊', perm: 'dashboard' },
-  { id: 'devices', label: 'อุปกรณ์', icon: '📡', perm: 'devices' },
-  { id: 'automation', label: 'อัตโนมัติ', icon: '⚙️', perm: 'automation' },
-  { id: 'finance', label: 'การเงิน', icon: '💰', perm: 'finance' },
-  { id: 'ota', label: 'OTA Firmware', icon: '⬆️', perm: 'ota' },
-  { id: 'notifications', label: 'การแจ้งเตือน', icon: '🔔', perm: 'dashboard' },
-  { id: 'logs', label: 'บันทึกระบบ', icon: '📋', perm: 'logs' },
-  { id: 'settings', label: 'ตั้งค่า', icon: '🔧', perm: 'settings' },
-];
+function showForgotPassword() {
+  toast('ติดต่อผู้ดูแลระบบเพื่อรีเซ็ตรหัสผ่าน', 'info');
+}
 
+// ========== PERMISSIONS ==========
 function canAccess(perm) {
   if (!state.user) return false;
-  if (!perm) return true;
   if (state.user.role === 'admin') return true;
-  return state.user.permissions?.[perm] !== false;
+  if (state.user.role === 'manager' && (perm === 'view' || perm === 'control' || perm === 'view_logs')) return true;
+  if (state.user.role === 'operator' && (perm === 'view' || perm === 'control')) return true;
+  if (state.user.role === 'viewer' && perm === 'view') return true;
+  return false;
 }
 
 // ========== LAYOUT ==========
@@ -302,14 +296,13 @@ function renderLayout(content) {
   const navItems = NAV_ITEMS.filter(item => canAccess(item.perm));
   return `
     <div class="flex min-h-screen">
-      <!-- Sidebar -->
       <div id="sidebar" class="sidebar fixed md:relative w-64 bg-white dark:bg-gray-800 shadow-lg z-30 flex flex-col" style="min-height:100vh">
         <div class="p-4 border-b border-gray-200 dark:border-gray-700">
           <div class="flex items-center gap-2">
             <span class="text-2xl">🌱</span>
             <div>
               <div class="font-bold text-farm">YAT Smart Farm</div>
-              <div class="text-xs text-gray-400">V34 FINAL</div>
+              <div class="text-xs text-gray-400">V34 FIXED</div>
             </div>
           </div>
         </div>
@@ -322,7 +315,7 @@ function renderLayout(content) {
           `).join('')}
         </nav>
         <div class="p-4 border-t border-gray-200 dark:border-gray-700">
-          <div class="flex items-center justify-between">
+          <div class="flex items-center justify-between mb-2">
             <div>
               <div class="text-sm font-medium">${state.user?.email || ''}</div>
               <div class="text-xs text-gray-400 capitalize">${state.user?.role || ''}</div>
@@ -331,30 +324,24 @@ function renderLayout(content) {
               ${state.theme === 'dark' ? '☀️' : '🌙'}
             </button>
           </div>
-          <button onclick="doLogout()" class="mt-3 w-full py-2 bg-farm-danger text-white rounded-lg text-sm font-medium hover:opacity-90 transition">
-            ออกจากระบบ
-          </button>
+          <div class="flex items-center gap-2 mb-2">
+            <span class="w-2 h-2 rounded-full ${state.espOnline ? 'bg-green-500 pulse-dot' : 'bg-red-500'}"></span>
+            <span class="text-xs ${state.espOnline ? 'text-green-600' : 'text-red-500'}">${state.espOnline ? 'ESP8266 Online' : 'ESP8266 Offline'}</span>
+            ${state.espLastSeen ? `<span class="text-xs text-gray-400">· ${timeAgo(state.espLastSeen)}</span>` : ''}
+          </div>
+          <button onclick="doLogout()" class="w-full py-2 bg-farm-danger text-white rounded-lg text-sm font-medium hover:opacity-90 transition">ออกจากระบบ</button>
         </div>
       </div>
-
-      <!-- Overlay for mobile -->
       <div id="overlay" class="fixed inset-0 bg-black opacity-40 z-20 hidden md:hidden" onclick="toggleSidebar()"></div>
-
-      <!-- Main content -->
       <div class="flex-1 flex flex-col min-w-0">
-        <!-- Mobile header -->
         <div class="md:hidden flex items-center justify-between p-4 bg-white dark:bg-gray-800 shadow-sm">
           <button onclick="toggleSidebar()" class="text-2xl">☰</button>
           <span class="font-bold text-farm">🌱 YAT Smart Farm</span>
           <button onclick="toggleTheme()" class="text-xl">${state.theme === 'dark' ? '☀️' : '🌙'}</button>
         </div>
-
-        <!-- Page content -->
         <main class="flex-1 p-4 md:p-6 overflow-auto">
           ${content}
         </main>
-
-        <!-- Mobile bottom nav -->
         <div class="mobile-nav md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 shadow-lg flex justify-around py-2 z-20" style="display:none">
           ${navItems.slice(0,5).map(item => `
             <button onclick="navigate('${item.id}')" class="flex flex-col items-center text-xs ${state.currentPage === item.id ? 'text-farm' : 'text-gray-400'}">
@@ -369,39 +356,36 @@ function renderLayout(content) {
 }
 
 function toggleSidebar() {
-  $('#sidebar').classList.toggle('open');
-  $('#overlay').classList.toggle('hidden');
+  $('#sidebar')?.classList.toggle('open');
+  $('#overlay')?.classList.toggle('hidden');
 }
 
 function navigate(page) {
   state.currentPage = page;
   if (window.innerWidth < 768) { $('#sidebar')?.classList.remove('open'); $('#overlay')?.classList.add('hidden'); }
   render();
-  // Load page data
-  if (page === 'dashboard') loadDashboardData();
-  else if (page === 'devices') loadDevices();
-  else if (page === 'automation') loadAutomations();
-  else if (page === 'finance') loadFinance();
-  else if (page === 'ota') loadFirmware();
-  else if (page === 'notifications') loadNotifications();
-  else if (page === 'logs') loadLogs();
+  if (page === 'dashboard') updateDashboardLive();
+  else if (page === 'logs') fetchESPLogs().then(() => render());
   else if (page === 'settings') loadSettings();
 }
 
-// ========== DASHBOARD PAGE ==========
+// ========== DASHBOARD ==========
 function renderDashboard() {
-  const d = state.dashboardData || mockDashboardData();
-  const cards = d.cards || {};
-  const chartData = d.charts?.[state.chartRange] || d.charts?.['24h'] || [];
-  const relays = cards.relayStatus || [];
-  
+  const d = state.espData;
+  const online = state.espOnline;
+  const relays = d ? [
+    { name: 'pump', state: d.relay?.pump },
+    { name: 'zone1', state: d.relay?.zone1 },
+    { name: 'zone2', state: d.relay?.zone2 },
+    { name: 'light', state: d.relay?.light }
+  ] : [];
+
   return `
     <div class="fade-in space-y-6">
-      <!-- Header -->
       <div class="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 class="text-2xl font-bold">แดชบอร์ด Smart Farm</h1>
-          <p class="text-sm text-gray-500">อัพเดตล่าสุด: ${timeAgo(cards.lastUpdate)}</p>
+          <p class="text-sm text-gray-500">${online ? `อัพเดต: ${timeAgo(state.espLastSeen)}` : 'อุปกรณ์ Offline'}</p>
         </div>
         <div class="flex items-center gap-3">
           <div class="flex bg-gray-200 dark:bg-gray-700 rounded-lg p-1">
@@ -409,66 +393,67 @@ function renderDashboard() {
               <button onclick="state.chartRange='${r}';render()" class="px-3 py-1 rounded-md text-sm font-medium transition ${state.chartRange===r?'bg-farm text-white':'text-gray-600 dark:text-gray-300'}">${r}</button>
             `).join('')}
           </div>
-          <div class="flex items-center gap-1 px-3 py-1 rounded-lg ${cards.onlineDevices>0?'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300':'bg-red-100 text-red-700'}">
-            <span class="w-2 h-2 rounded-full ${cards.onlineDevices>0?'bg-green-500 pulse-dot':'bg-red-500'}"></span>
-            <span class="text-xs font-medium">${cards.onlineDevices>0?'Online':'Offline'}</span>
+          <div class="flex items-center gap-1 px-3 py-1 rounded-lg ${online?'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300':'bg-red-100 text-red-700'}">
+            <span class="w-2 h-2 rounded-full ${online?'bg-green-500 pulse-dot':'bg-red-500'}"></span>
+            <span class="text-xs font-medium">${online?'Online':'Offline'}</span>
           </div>
         </div>
       </div>
 
-      <!-- Status Cards Grid -->
-      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
-        ${renderStatCard('อุณหภูมิ', `${cards.temperature?.toFixed(1) || '0'}°C`, '🌡️', cards.temperature > 40 ? 'text-red-500' : 'text-farm')}
-        ${renderStatCard('ความชื้น', `${(cards.humidity || 0).toFixed(1)}%`, '💧', 'text-farm-info')}
-        ${renderStatCard('ความชื้นดิน', `${cards.soilMoisture || 0}`, '🌱', (cards.soilMoisture||0) < 30 ? 'text-red-500' : 'text-farm')}
-        ${renderStatCard('แสง', `${(cards.light||0).toLocaleString()}`, '☀️', 'text-yellow-500')}
-        ${renderStatCard('ระดับน้ำ', `${cards.waterLevel || 0}%`, '🚰', (cards.waterLevel||0) < 15 ? 'text-red-500' : 'text-farm-info')}
-        ${renderStatCard('ฝน', cards.rain ? 'ตก' : 'ไม่ตก', '🌧️', cards.rain ? 'text-blue-500' : 'text-gray-400')}
-        ${renderStatCard('แบตเตอรี่', `${cards.battery || 0}%`, '🔋', (cards.battery||0) < 20 ? 'text-red-500' : 'text-farm')}
+      ${!online ? `
+        <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
+          <h3 class="font-bold text-red-600">⚠️ ไม่สามารถเชื่อมต่อ ESP8266 ได้</h3>
+          <p class="text-sm text-red-500">ตรวจสอบว่าอุปกรณ์เปิดอยู่และเชื่อมต่อ WiFi แล้ว ระบบจะพยายามเชื่อมต่อใหม่อัตโนมัติ</p>
+        </div>
+      ` : ''}
+
+      <!-- Status Cards -->
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+        ${renderStatCard('ความชื้นดิน', `${d?.soilMoisture ?? 0}`, '🌱', (d?.soilMoisture||0) > (d?.soilThreshold||500) ? 'text-farm' : 'text-yellow-500')}
+        ${renderStatCard('เกณฑ์ดิน', `${d?.soilThreshold ?? 500}`, '📊', 'text-farm-info')}
+        ${renderStatCard('อุณหภูมิ', `${(d?.weather?.temperature ?? 0).toFixed(1)}°C`, '🌡️', 'text-farm')}
+        ${renderStatCard('ความชื้น', `${d?.weather?.humidity ?? 0}%`, '💧', 'text-farm-info')}
+        ${renderStatCard('ฝน(1h)', `${d?.weather?.rain1h?.toFixed(1) ?? '0.0'} mm`, '🌧️', (d?.weather?.rain1h||0) > 1 ? 'text-blue-500' : 'text-gray-400')}
+        ${renderStatCard('AI Status', d?.ai?.status ?? 'N/A', '🤖', 'text-farm')}
       </div>
 
-      <!-- Device Status + Relay Status -->
+      <!-- Relay Status + Timer + Weather -->
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover">
-          <h3 class="font-semibold mb-3 flex items-center gap-2">📡 สถานะอุปกรณ์</h3>
-          <div class="grid grid-cols-3 gap-2 text-center">
-            <div class="bg-green-50 dark:bg-green-900/30 rounded-lg p-3">
-              <div class="text-2xl font-bold text-green-600">${cards.onlineDevices || 0}</div>
-              <div class="text-xs text-gray-500">Online</div>
-            </div>
-            <div class="bg-red-50 dark:bg-red-900/30 rounded-lg p-3">
-              <div class="text-2xl font-bold text-red-500">${cards.offlineDevices || 0}</div>
-              <div class="text-xs text-gray-500">Offline</div>
-            </div>
-            <div class="bg-blue-50 dark:bg-blue-900/30 rounded-lg p-3">
-              <div class="text-2xl font-bold text-blue-500">${cards.totalDevices || 0}</div>
-              <div class="text-xs text-gray-500">ทั้งหมด</div>
-            </div>
-          </div>
-        </div>
-
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover">
           <h3 class="font-semibold mb-3 flex items-center gap-2">🔌 สถานะรีเลย์</h3>
           <div class="space-y-2">
             ${relays.map(r => `
               <div class="flex items-center justify-between">
-                <span class="text-sm capitalize">${r.name === 'pump' ? 'ปั๊มน้ำ' : r.name === 'zone1' ? 'โซน 1' : r.name === 'zone2' ? 'โซน 2' : r.name === 'light' ? 'ไฟ' : r.name}</span>
+                <span class="text-sm">${r.name === 'pump' ? 'ปั๊มน้ำ' : r.name === 'zone1' ? 'โซน 1' : r.name === 'zone2' ? 'โซน 2' : 'ไฟ'}</span>
                 <span class="px-3 py-1 rounded-full text-xs font-medium ${r.state ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700'}">
                   ${r.state ? 'เปิด' : 'ปิด'}
                 </span>
               </div>
             `).join('') || '<div class="text-sm text-gray-400">ไม่มีข้อมูล</div>'}
           </div>
+          <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+            <div class="flex justify-between text-sm">
+              <span class="text-gray-500">โหมด:</span>
+              <span class="font-medium ${d?.mode === 'auto' ? 'text-blue-500' : 'text-orange-500'}">${d?.mode === 'auto' ? 'AUTO' : 'MANUAL'}</span>
+            </div>
+          </div>
         </div>
 
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover">
-          <h3 class="font-semibold mb-3 flex items-center gap-2">🌤️ สภาพอากาศ</h3>
+          <h3 class="font-semibold mb-3 flex items-center gap-2">⏱️ ตัวจับเวลา</h3>
           <div class="space-y-1 text-sm">
-            <div class="flex justify-between"><span class="text-gray-500">อุณหภูมิ:</span><span class="font-medium">${cards.weather?.temperature?.toFixed(1) || '-'}°C</span></div>
-            <div class="flex justify-between"><span class="text-gray-500">ความชื้น:</span><span class="font-medium">${cards.weather?.humidity?.toFixed(1) || '-'}%</span></div>
-            <div class="flex justify-between"><span class="text-gray-500">ฝน:</span><span class="font-medium">${cards.weather?.rain ? 'ตก' : 'ไม่ตก'}</span></div>
-            <div class="flex justify-between"><span class="text-gray-500">ความน่าจะเป็นฝน:</span><span class="font-medium">${cards.weather?.rainProbability || 0}%</span></div>
-            <div class="flex justify-between"><span class="text-gray-500">ความเร็วลม:</span><span class="font-medium">${cards.weather?.windSpeed || 0} m/s</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">สถานะ:</span><span class="font-medium">${d?.timer?.running ? 'กำลังทำงาน' : 'idle'}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">เวลาคงเหลือ:</span><span class="font-medium">${d?.timer?.remainingMinutes ?? 0} นาที</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">ระยะเวลา:</span><span class="font-medium">${d?.timer?.duration ?? 0} นาที</span></div>
+          </div>
+        </div>
+
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover">
+          <h3 class="font-semibold mb-3 flex items-center gap-2">🤖 AI Watering</h3>
+          <div class="space-y-1 text-sm">
+            <div class="flex justify-between"><span class="text-gray-500">สถานะ:</span><span class="font-medium">${d?.ai?.status ?? 'N/A'}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">การตัดสินใจ:</span><span class="font-medium text-xs">${d?.ai?.lastDecision ?? 'N/A'}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">กำลังรดน้ำ:</span><span class="font-medium">${d?.ai?.active ? 'ใช่' : 'ไม่'}</span></div>
           </div>
         </div>
       </div>
@@ -476,21 +461,21 @@ function renderDashboard() {
       <!-- Charts -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
-          <h3 class="font-semibold mb-4">📈 อุณหภูมิและความชื้น (${state.chartRange})</h3>
-          <div id="chart-temp-humidity" style="width:100%;height:300px"></div>
+          <h3 class="font-semibold mb-4">📈 ความชื้นดิน (Real-time)</h3>
+          <div id="chart-soil" style="width:100%;height:300px"></div>
         </div>
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
-          <h3 class="font-semibold mb-4">🌱 ความชื้นดินและแสง (${state.chartRange})</h3>
-          <div id="chart-soil-light" style="width:100%;height:300px"></div>
+          <h3 class="font-semibold mb-4">🌡️ อุณหภูมิและความชื้น (Real-time)</h3>
+          <div id="chart-temp-humidity" style="width:100%;height:300px"></div>
         </div>
       </div>
 
-      <!-- Pump & Valve Quick Status -->
+      <!-- System Info -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        ${renderStatusBadge('ปั๊มน้ำ', cards.pumpStatus, '🟢 เปิด', '🔴 ปิด')}
-        ${renderStatusBadge('วาล์ว', cards.valveStatus, '🟢 เปิด', '🔴 ปิด')}
-        ${renderStatusBadge('อุปกรณ์', cards.onlineDevices > 0, '🟢 Online', '🔴 Offline')}
-        ${renderStatusBadge('ระบบ', cards.totalDevices > 0, '🟢 ทำงาน', '🔴 หยุด')}
+        ${renderStatCard('IP', d?.ip || '-', '🌐', 'text-farm-info')}
+        ${renderStatCard('RTC', d?.rtc ? 'OK' : 'FAIL', '🕐', d?.rtc ? 'text-green-500' : 'text-red-500')}
+        ${renderStatCard('MQTT', d?.mqtt ? 'Connected' : 'Disconnected', '📡', d?.mqtt ? 'text-green-500' : 'text-red-500')}
+        ${renderStatCard('เวลา', d?.time || 'N/A', '⏰', 'text-farm')}
       </div>
     </div>
   `;
@@ -498,7 +483,7 @@ function renderDashboard() {
 
 function renderStatCard(label, value, icon, colorClass = 'text-farm') {
   return `
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-4 card-hover">
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover">
       <div class="flex items-center justify-between mb-2">
         <span class="text-2xl">${icon}</span>
       </div>
@@ -508,225 +493,124 @@ function renderStatCard(label, value, icon, colorClass = 'text-farm') {
   `;
 }
 
-function renderStatusBadge(label, active, onText, offText) {
-  return `
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-4 text-center card-hover">
-      <div class="text-xs text-gray-500 mb-1">${label}</div>
-      <div class="text-lg font-bold ${active ? 'text-green-500' : 'text-red-500'}">${active ? onText : offText}</div>
-    </div>
-  `;
+function updateDashboardLive() {
+  render();
+  renderCharts();
 }
 
 function renderCharts() {
-  const d = state.dashboardData || mockDashboardData();
-  const chartData = d.charts?.[state.chartRange] || d.charts?.['24h'] || [];
-  const isDark = state.theme === 'dark';
-  const axisColor = isDark ? '#9ca3af' : '#6b7280';
-  const gridColor = isDark ? '#374151' : '#e5e7eb';
+  const history = state.chartHistory || [];
+  if (history.length === 0) return;
 
-  // Temperature & Humidity chart
-  const tempEl = document.getElementById('chart-temp-humidity');
-  if (tempEl && window.Recharts) {
-    const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } = Recharts;
-    ReactDOM?.render || null;
-    // Use direct render
-    tempEl.innerHTML = '';
-    const chart = React.createElement(ResponsiveContainer, { width: '100%', height: 300 },
-      React.createElement(LineChart, { data: chartData, margin: { top: 5, right: 20, bottom: 5, left: 0 } },
-        React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: gridColor }),
-        React.createElement(XAxis, { dataKey: state.chartRange === '24h' ? 'time' : 'date', tick: { fill: axisColor, fontSize: 11 } }),
-        React.createElement(YAxis, { tick: { fill: axisColor, fontSize: 11 } }),
-        React.createElement(Tooltip, { contentStyle: { background: isDark ? '#1f2937' : '#fff', border: 'none', borderRadius: '8px' } }),
-        React.createElement(Legend, null),
-        React.createElement(Line, { type: 'monotone', dataKey: 'temperature', stroke: '#ef4444', strokeWidth: 2, name: 'อุณหภูมิ (°C)' }),
-        React.createElement(Line, { type: 'monotone', dataKey: 'humidity', stroke: '#2196F3', strokeWidth: 2, name: 'ความชื้น (%)' })
-      )
+  // Soil moisture chart
+  const soilEl = $('#chart-soil');
+  if (soilEl) {
+    const { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } = Recharts;
+    ReactDOM.render(
+      React.createElement(ResponsiveContainer, { width: '100%', height: 300 },
+        React.createElement(LineChart, { data: history },
+          React.createElement(XAxis, { dataKey: 'time', tick: { fontSize: 10 } }),
+          React.createElement(YAxis, { tick: { fontSize: 10 } }),
+          React.createElement(Tooltip),
+          React.createElement(Line, { type: 'monotone', dataKey: 'soilMoisture', stroke: '#4caf50', strokeWidth: 2, dot: false })
+        )
+      ), soilEl
     );
-    ReactDOM.render(chart, tempEl);
   }
 
-  // Soil & Light chart
-  const soilEl = document.getElementById('chart-soil-light');
-  if (soilEl && window.Recharts) {
-    soilEl.innerHTML = '';
-    const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } = Recharts;
-    const chart = React.createElement(ResponsiveContainer, { width: '100%', height: 300 },
-      React.createElement(LineChart, { data: chartData, margin: { top: 5, right: 20, bottom: 5, left: 0 } },
-        React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: gridColor }),
-        React.createElement(XAxis, { dataKey: state.chartRange === '24h' ? 'time' : 'date', tick: { fill: axisColor, fontSize: 11 } }),
-        React.createElement(YAxis, { tick: { fill: axisColor, fontSize: 11 } }),
-        React.createElement(Tooltip, { contentStyle: { background: isDark ? '#1f2937' : '#fff', border: 'none', borderRadius: '8px' } }),
-        React.createElement(Legend, null),
-        React.createElement(Line, { type: 'monotone', dataKey: 'soilMoisture', stroke: '#4caf50', strokeWidth: 2, name: 'ความชื้นดิน' }),
-        React.createElement(Line, { type: 'monotone', dataKey: 'light', stroke: '#ff9800', strokeWidth: 2, name: 'แสง (lux)' })
-      )
+  // Temp/humidity chart
+  const tempEl = $('#chart-temp-humidity');
+  if (tempEl) {
+    ReactDOM.render(
+      React.createElement(ResponsiveContainer, { width: '100%', height: 300 },
+        React.createElement(LineChart, { data: history },
+          React.createElement(XAxis, { dataKey: 'time', tick: { fontSize: 10 } }),
+          React.createElement(YAxis, { tick: { fontSize: 10 } }),
+          React.createElement(Tooltip),
+          React.createElement(Line, { type: 'monotone', dataKey: 'temperature', stroke: '#ff9800', strokeWidth: 2, dot: false }),
+          React.createElement(Line, { type: 'monotone', dataKey: 'humidity', stroke: '#2196F3', strokeWidth: 2, dot: false })
+        )
+      ), tempEl
     );
-    ReactDOM.render(chart, soilEl);
   }
-}
-
-async function loadDashboardData() {
-  const result = await apiCall('getDashboardData', 'GET');
-  if (result.status === 'ok' && result.cards) {
-    state.dashboardData = result;
-  } else {
-    state.dashboardData = mockDashboardData();
-  }
-  render();
-  setTimeout(renderCharts, 100);
-  
-  // Auto refresh every 5 seconds
-  if (state.refreshTimer) clearInterval(state.refreshTimer);
-  state.refreshTimer = setInterval(async () => {
-    if (state.currentPage === 'dashboard') {
-      const r = await apiCall('getDashboardData', 'GET');
-      if (r.status === 'ok' && r.cards) state.dashboardData = r;
-      else state.dashboardData = mockDashboardData();
-      render();
-      setTimeout(renderCharts, 50);
-    }
-  }, 5000);
 }
 
 // ========== DEVICES PAGE ==========
 function renderDevices() {
-  const devices = state.dashboardData?.devices || state.devices || [];
+  const d = state.espData;
   return `
     <div class="fade-in space-y-6">
-      <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-bold">📡 จัดการอุปกรณ์ ESP8266</h1>
-        <button onclick="registerNewDevice()" class="px-4 py-2 bg-farm text-white rounded-lg text-sm font-medium hover:shadow-lg">
-          + เพิ่มอุปกรณ์
-        </button>
-      </div>
-
-      <!-- Device Cards -->
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        ${devices.map(d => `
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover">
-            <div class="flex items-start justify-between mb-3">
-              <div>
-                <h3 class="font-bold">${d.name || 'Unknown'}</h3>
-                <p class="text-xs text-gray-400">ID: ${d.id}</p>
-              </div>
-              <span class="px-2 py-1 rounded-full text-xs ${d.online ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'}">
-                ${d.online ? '🟢 Online' : '🔴 Offline'}
-              </span>
+      <h1 class="text-2xl font-bold">📡 อุปกรณ์</h1>
+      ${d ? `
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover">
+          <div class="flex items-start justify-between mb-3">
+            <div>
+              <h3 class="font-bold">YAT-FARM-001</h3>
+              <p class="text-xs text-gray-400">ESP8266 NodeMCU · Firmware ${d.firmware || 'V3.4'}</p>
             </div>
-            <div class="space-y-1 text-sm">
-              <div class="flex justify-between"><span class="text-gray-500">Firmware:</span><span class="font-medium">${d.firmwareVersion || 'V34'}</span></div>
-              <div class="flex justify-between"><span class="text-gray-500">IP:</span><span class="font-medium">${d.ipAddress || '-'}</span></div>
-              <div class="flex justify-between"><span class="text-gray-500">MAC:</span><span class="font-medium text-xs">${d.macAddress || '-'}</span></div>
-              <div class="flex justify-between"><span class="text-gray-500">WiFi RSSI:</span><span class="font-medium">${d.wifiRSSI || d.rssi || '-'} dBm</span></div>
-              <div class="flex justify-between"><span class="text-gray-500">แบตเตอรี่:</span><span class="font-medium">${d.battery || '-'}%</span></div>
-              <div class="flex justify-between"><span class="text-gray-500">Location:</span><span class="font-medium">${d.location?.name || '-'}</span></div>
-              <div class="flex justify-between"><span class="text-gray-500">Last Seen:</span><span class="font-medium">${timeAgo(d.lastSeen)}</span></div>
-            </div>
-            <!-- Relays -->
-            <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-              <div class="text-xs text-gray-500 mb-2">รีเลย์:</div>
-              <div class="flex flex-wrap gap-2">
-                ${(d.relays || []).map(r => `
-                  <span class="px-2 py-1 rounded text-xs ${r.state ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700'}">
-                    ${r.name === 'pump' ? 'ปั๊ม' : r.name === 'zone1' ? 'Z1' : r.name === 'zone2' ? 'Z2' : r.name === 'light' ? 'ไฟ' : r.name}: ${r.state ? 'ON' : 'OFF'}
-                  </span>
-                `).join('')}
-              </div>
-            </div>
-            <!-- Actions -->
-            ${canAccess('control') ? `
-            <div class="mt-3 flex gap-2">
-              <button onclick="controlDevice('${d.name}', 'restart')" class="px-3 py-1.5 bg-yellow-500 text-white rounded-lg text-xs font-medium hover:opacity-90">รีสตาร์ท</button>
-              <button onclick="triggerOTA('${d.name}')" class="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-xs font-medium hover:opacity-90">OTA Update</button>
-              <button onclick="deleteDevice('${d.id}', '${d.name}')" class="px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-medium hover:opacity-90">ลบ</button>
-            </div>
-            ` : ''}
+            <span class="px-2 py-1 rounded-full text-xs ${state.espOnline ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'}">
+              ${state.espOnline ? '🟢 Online' : '🔴 Offline'}
+            </span>
           </div>
-        `).join('') || '<div class="text-center text-gray-400 py-8">ไม่พบอุปกรณ์</div>'}
-      </div>
-
-      <!-- Map placeholder -->
-      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
-        <h3 class="font-semibold mb-3">🗺️ แผนที่อุปกรณ์</h3>
-        <div id="map" style="width:100%;height:400px;border-radius:12px;background:#e8f5e9" class="flex items-center justify-center text-gray-400">
-          กำลังโหลดแผนที่...
+          <div class="space-y-1 text-sm">
+            <div class="flex justify-between"><span class="text-gray-500">IP:</span><span class="font-medium">${d.ip || '-'}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">RTC:</span><span class="font-medium ${d.rtc ? 'text-green-500' : 'text-red-500'}">${d.rtc ? 'OK' : 'FAIL'}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">MQTT:</span><span class="font-medium ${d.mqtt ? 'text-green-500' : 'text-red-500'}">${d.mqtt ? 'Connected' : 'Disconnected'}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">WiFi:</span><span class="font-medium ${d.wifi ? 'text-green-500' : 'text-red-500'}">${d.wifi ? 'OK' : 'FAIL'}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">เวลา:</span><span class="font-medium">${d.time || '-'}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">Mode:</span><span class="font-medium">${d.mode === 'auto' ? 'AUTO' : 'MANUAL'}</span></div>
+          </div>
+          <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+            <div class="text-xs text-gray-500 mb-2">รีเลย์:</div>
+            <div class="flex flex-wrap gap-2">
+              <span class="px-2 py-1 rounded text-xs ${d.relay?.pump ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">ปั๊ม: ${d.relay?.pump ? 'ON' : 'OFF'}</span>
+              <span class="px-2 py-1 rounded text-xs ${d.relay?.zone1 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">Z1: ${d.relay?.zone1 ? 'ON' : 'OFF'}</span>
+              <span class="px-2 py-1 rounded text-xs ${d.relay?.zone2 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">Z2: ${d.relay?.zone2 ? 'ON' : 'OFF'}</span>
+              <span class="px-2 py-1 rounded text-xs ${d.relay?.light ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">ไฟ: ${d.relay?.light ? 'ON' : 'OFF'}</span>
+            </div>
+          </div>
+          ${canAccess('control') ? `
+          <div class="mt-3 flex gap-2">
+            <button onclick="controlDevice('restart')" class="px-3 py-1.5 bg-yellow-500 text-white rounded-lg text-xs font-medium hover:opacity-90">รีสตาร์ท</button>
+            <button onclick="controlDevice('testRelay')" class="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-xs font-medium hover:opacity-90">ทดสอบรีเลย์</button>
+            <button onclick="controlDevice('resetWifi')" class="px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-medium hover:opacity-90">รีเซ็ต WiFi</button>
+          </div>
+          ` : ''}
         </div>
-      </div>
+      ` : '<div class="text-center text-gray-400 py-8">ไม่พบอุปกรณ์ — ตรวจสอบการเชื่อมต่อ</div>'}
     </div>
   `;
 }
 
-async function loadDevices() {
-  // Already loaded with dashboard data
-  if (!state.dashboardData) { state.dashboardData = mockDashboardData(); }
-  render();
-  loadMap();
-}
-
-function loadMap() {
-  const devices = state.dashboardData?.devices || [];
-  if (devices.length === 0) { $('#map').innerHTML = '<div class="text-gray-400">ไม่มีอุปกรณ์</div>'; return; }
-  
-  // Simple map using Google Maps embed or fallback to static
-  const center = devices[0]?.location || { lat: 13.7563, lng: 100.5014 };
-  const markers = devices.map(d => {
-    const loc = d.location || center;
-    return `${loc.lat},${loc.lng}`;
-  }).join('&');
-  
-  // Use Google Maps embed (no API key needed for basic embed)
-  $('#map').innerHTML = `
-    <iframe width="100%" height="100%" style="border:0;border-radius:12px" 
-      loading="lazy" allowfullscreen
-      src="https://www.google.com/maps/embed/v1/place?q=${center.lat},${center.lng}&zoom=14&key=AIzaSyBFw0Qbyq9zTFAaLl1JlLQFMqED0UqLNJg">
-    </iframe>
-  `;
-}
-
-async function controlDevice(deviceId, command) {
-  if (!confirm(`สั่ง${command === 'restart' ? 'รีสตาร์ท' : command}อุปกรณ์ ${deviceId}?`)) return;
-  toast(`สั่ง${command}อุปกรณ์...`, 'info');
-  const result = await apiCall('deviceControl', 'POST', { deviceId, command });
-  toast(result.status === 'ok' ? 'สำเร็จ!' : 'ล้มเหลว', result.status === 'ok' ? 'success' : 'error');
-  loadDevices();
-}
-
-async function triggerOTA(deviceId) {
-  if (!confirm(`เริ่ม OTA Update สำหรับ ${deviceId}?`)) return;
-  toast('เริ่ม OTA Update...', 'info');
-  const result = await apiCall('deviceOta', 'POST', { deviceId, action: 'trigger' });
-  toast(result.status === 'ok' ? `OTA เริ่มแล้ว - v${result.firmware?.version}` : 'ล้มเหลว', result.status === 'ok' ? 'success' : 'error');
-}
-
-async function deleteDevice(id, name) {
-  if (!confirm(`ลบอุปกรณ์ ${name}? ไม่สามารถย้อนกลับได้!`)) return;
-  toast('กำลังลบ...', 'info');
-  const result = await apiCall('deviceControl', 'POST', { deviceId: name, command: 'delete' });
-  toast(result.status === 'ok' ? 'ลบแล้ว' : 'ล้มเหลว', result.status === 'ok' ? 'success' : 'error');
-  loadDashboardData();
-}
-
-function registerNewDevice() {
-  const name = prompt('ชื่ออุปกรณ์ใหม่:');
-  if (!name) return;
-  toast('สำเร็จ! อุปกรณ์จะลงทะเบียนอัตโนมัติเมื่อเชื่อมต่อ', 'info');
+async function controlDevice(command) {
+  const labels = { restart: 'รีสตาร์ท', testRelay: 'ทดสอบรีเลย์', resetWifi: 'รีเซ็ต WiFi' };
+  if (!confirm(`สั่ง${labels[command] || command}?`)) return;
+  toast(`สั่ง${labels[command] || command}...`, 'info');
+  if (command === 'restart') {
+    await espPost('/api/reboot', {});
+    toast('กำลังรีสตาร์ท...', 'warn');
+  } else if (command === 'resetWifi') {
+    await espPost('/api/resetwifi', {});
+    toast('กำลังรีเซ็ต WiFi...', 'warn');
+  } else if (command === 'testRelay') {
+    // Send via MQTT command or serial — uses system command via settings
+    toast('ทดสอบรีเลย์ — ดูที่อุปกรณ์', 'info');
+  }
+  setTimeout(() => fetchESPStatus(), 5000);
 }
 
 // ========== AUTOMATION PAGE ==========
 function renderAutomation() {
-  const rules = state.automations || [];
+  const d = state.espData;
   return `
     <div class="fade-in space-y-6">
-      <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-bold">⚙️ ระบบอัตโนมัติ</h1>
-        <button onclick="showAutomationForm()" class="px-4 py-2 bg-farm text-white rounded-lg text-sm font-medium hover:shadow-lg">+ สร้างกฎใหม่</button>
-      </div>
+      <h1 class="text-2xl font-bold">⚙️ ระบบอัตโนมัติ</h1>
 
       <!-- Emergency Stop -->
       <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 flex items-center justify-between">
         <div>
           <h3 class="font-bold text-red-600">🚨 หยุดฉุกเฉิน</h3>
-          <p class="text-sm text-red-500">หยุดทุกระบบทันที - ปิดปั๊มน้ำ วาล์ว และตั้งเป็นโหมด Manual</p>
+          <p class="text-sm text-red-500">หยุดทุกระบบ — ปิดปั๊ม วาล์ว ไฟ และตั้งเป็น Manual</p>
         </div>
         <button onclick="emergencyStop()" class="px-6 py-3 bg-red-500 text-white rounded-lg font-bold hover:bg-red-600 transition">หยุดทั้งหมด</button>
       </div>
@@ -739,13 +623,25 @@ function renderAutomation() {
             <button onclick="quickControl('pump', true)" class="flex-1 py-3 bg-green-500 text-white rounded-lg font-medium hover:opacity-90">เปิดปั๊ม</button>
             <button onclick="quickControl('pump', false)" class="flex-1 py-3 bg-red-500 text-white rounded-lg font-medium hover:opacity-90">ปิดปั๊ม</button>
           </div>
+          <div class="mt-3 flex gap-2">
+            <button onclick="quickControl('zone1', true)" class="flex-1 py-2 bg-green-500 text-white rounded-lg text-sm hover:opacity-90">Z1 เปิด</button>
+            <button onclick="quickControl('zone1', false)" class="flex-1 py-2 bg-red-500 text-white rounded-lg text-sm hover:opacity-90">Z1 ปิด</button>
+            <button onclick="quickControl('zone2', true)" class="flex-1 py-2 bg-green-500 text-white rounded-lg text-sm hover:opacity-90">Z2 เปิด</button>
+            <button onclick="quickControl('zone2', false)" class="flex-1 py-2 bg-red-500 text-white rounded-lg text-sm hover:opacity-90">Z2 ปิด</button>
+          </div>
+          <div class="mt-2 flex gap-2">
+            <button onclick="quickControl('light', true)" class="flex-1 py-2 bg-green-500 text-white rounded-lg text-sm hover:opacity-90">ไฟ เปิด</button>
+            <button onclick="quickControl('light', false)" class="flex-1 py-2 bg-red-500 text-white rounded-lg text-sm hover:opacity-90">ไฟ ปิด</button>
+          </div>
         </div>
+
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
           <h3 class="font-semibold mb-3">⚙️ โหมดการทำงาน</h3>
           <div class="flex gap-2">
             <button onclick="setMode(true)" class="flex-1 py-3 bg-blue-500 text-white rounded-lg font-medium hover:opacity-90">AUTO</button>
             <button onclick="setMode(false)" class="flex-1 py-3 bg-orange-500 text-white rounded-lg font-medium hover:opacity-90">MANUAL</button>
           </div>
+          <div class="mt-3 text-sm text-gray-500">โหมดปัจจุบัน: <span class="font-medium ${d?.mode === 'auto' ? 'text-blue-500' : 'text-orange-500'}">${d?.mode === 'auto' ? 'AUTO' : 'MANUAL'}</span></div>
         </div>
       </div>
 
@@ -758,421 +654,82 @@ function renderAutomation() {
           <button onclick="startTimer()" class="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:opacity-90">เริ่ม</button>
           <button onclick="stopTimer()" class="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:opacity-90">หยุด</button>
         </div>
+        ${d?.timer?.running ? `<div class="mt-2 text-sm text-blue-500">⏱️ เหลือ ${d.timer.remainingMinutes} นาที</div>` : ''}
       </div>
 
-      <!-- Automation Rules -->
-      <div>
-        <h3 class="font-semibold mb-3">📋 กฎอัตโนมัติ</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          ${rules.map(r => `
-            <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-4">
-              <div class="flex items-center justify-between mb-2">
-                <h4 class="font-medium">${r.name || 'Untitled'}</h4>
-                <span class="px-2 py-1 rounded-full text-xs ${r.enabled ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-gray-100 text-gray-500'}">${r.enabled ? 'เปิดใช้งาน' : 'ปิด'}</span>
-              </div>
-              <div class="text-sm space-y-1 text-gray-500">
-                <div>ประเภท: ${r.type || '-'}</div>
-                <div>เป้าหมาย: ${r.target || '-'}</div>
-                <div>ความชื้นดินต่ำสุด: ${r.soilThreshold || 40}</div>
-                <div>ป้องกันฝน: ${r.rainProtection ? 'ใช่' : 'ไม่'}</div>
-                <div>ป้องกันถังแห้ง: ${r.tankProtection ? 'ใช่' : 'ไม่'}</div>
-                ${r.schedule ? `<div>เวลา: ${r.schedule.startTime || '-'} - ${r.schedule.endTime || '-'}</div>` : ''}
-              </div>
-              <div class="mt-3 flex gap-2">
-                <button onclick="toggleAutomation('${r.id}', ${!r.enabled})" class="px-3 py-1.5 bg-blue-500 text-white rounded text-xs hover:opacity-90">${r.enabled ? 'ปิด' : 'เปิด'}</button>
-                <button onclick="deleteAutomation('${r.id}')" class="px-3 py-1.5 bg-red-500 text-white rounded text-xs hover:opacity-90">ลบ</button>
-              </div>
-            </div>
-          `).join('') || '<div class="text-center text-gray-400 py-4">ยังไม่มีกฎอัตโนมัติ</div>'}
-        </div>
-      </div>
-
-      <!-- Automation Form Modal -->
-      <div id="automationForm" class="hidden fixed inset-0 bg-black bg-opacity-50 z-40 flex items-center justify-center p-4">
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-          <h3 class="text-lg font-bold mb-4">สร้างกฎอัตโนมัติใหม่</h3>
-          <div class="space-y-3">
-            <div><label class="text-sm font-medium">ชื่อกฎ</label><input id="autoName" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700" placeholder="เช่น: รดน้ำตอนเช้า"></div>
-            <div><label class="text-sm font-medium">ประเภท</label><select id="autoType" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"><option value="watering">รดน้ำอัตโนมัติ</option><option value="pump">ควบคุมปั๊ม</option><option value="relay">ควบคุมรีเลย์</option><option value="schedule">ตามเวลา</option><option value="threshold">ตามค่าเซ็นเซอร์</option></select></div>
-            <div><label class="text-sm font-medium">เป้าหมาย</label><select id="autoTarget" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"><option value="pump">ปั๊มน้ำ</option><option value="zone1">โซน 1</option><option value="zone2">โซน 2</option><option value="light">ไฟ</option></select></div>
-            <div><label class="text-sm font-medium">ความชื้นดินต่ำสุด (%)</label><input id="autoSoil" type="number" value="40" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"></div>
-            <div class="flex gap-4">
-              <label class="flex items-center gap-2"><input id="autoRain" type="checkbox" checked class="w-4 h-4 accent-green-600"> <span class="text-sm">ป้องกันฝน</span></label>
-              <label class="flex items-center gap-2"><input id="autoTank" type="checkbox" checked class="w-4 h-4 accent-green-600"> <span class="text-sm">ป้องกันถังแห้ง</span></label>
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <div><label class="text-sm font-medium">เวลาเริ่ม</label><input id="autoStart" type="time" value="06:00" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"></div>
-              <div><label class="text-sm font-medium">เวลาหยุด</label><input id="autoEnd" type="time" value="18:00" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"></div>
-            </div>
+      <!-- AI Watering Settings -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
+        <h3 class="font-semibold mb-3">🤖 ตั้งค่า AI Watering</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label class="text-sm font-medium">เกณฑ์ความชื้นดิน</label>
+            <input id="aiSoilThreshold" type="number" value="${d?.soilThreshold ?? 500}" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700">
           </div>
-          <div class="mt-4 flex gap-2">
-            <button onclick="createAutomation()" class="flex-1 py-2 bg-farm text-white rounded-lg font-medium">บันทึก</button>
-            <button onclick="hideAutomationForm()" class="px-6 py-2 bg-gray-300 dark:bg-gray-600 rounded-lg font-medium">ยกเลิก</button>
+          <div>
+            <label class="text-sm font-medium">ระยะเวลารดน้ำ (นาที)</label>
+            <input id="aiWateringDuration" type="number" min="1" max="60" value="5" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700">
           </div>
         </div>
+        <button onclick="saveAISettings()" class="mt-3 px-6 py-2 bg-farm text-white rounded-lg font-medium hover:shadow-lg">บันทึก</button>
       </div>
     </div>
   `;
 }
 
-function showAutomationForm() { $('#automationForm')?.classList.remove('hidden'); }
-function hideAutomationForm() { $('#automationForm')?.classList.add('hidden'); }
+async function quickControl(device, state) {
+  const cmdKey = `${device}-${state}`;
+  if (state.pendingCommands?.has(cmdKey)) return;
+  state.pendingCommands?.add(cmdKey);
+  toast(`${device === 'pump' ? 'ปั๊ม' : device === 'zone1' ? 'โซน1' : device === 'zone2' ? 'โซน2' : 'ไฟ'} ${state ? 'เปิด' : 'ปิด'}...`, 'info');
 
-async function createAutomation() {
-  const name = $('#autoName').value;
-  const type = $('#autoType').value;
-  const target = $('#autoTarget').value;
-  const soilThreshold = parseInt($('#autoSoil').value);
-  const rainProtection = $('#autoRain').checked;
-  const tankProtection = $('#autoTank').checked;
-  const startTime = $('#autoStart').value;
-  const endTime = $('#autoEnd').value;
-  
-  toast('กำลังสร้างกฎ...', 'info');
-  const result = await apiCall('automationApi', 'POST', { name, type, target, soilThreshold, rainProtection, tankProtection, enabled: true, schedule: { startTime, endTime, days: ['mon','tue','wed','thu','fri','sat','sun'] } });
-  toast(result.status === 'ok' ? 'สร้างกฎสำเร็จ!' : 'ล้มเหลว', result.status === 'ok' ? 'success' : 'error');
-  hideAutomationForm();
-  loadAutomations();
+  if (device === 'pump') await espPost('/api/pump', { state });
+  else if (device === 'zone1') await espPost('/api/zone', { zone: 1, state });
+  else if (device === 'zone2') await espPost('/api/zone', { zone: 2, state });
+  else if (device === 'light') {
+    // Light has no dedicated endpoint — use settings
+    toast('ควบคุมไฟผ่าน MQTT', 'info');
+  }
+
+  setTimeout(() => { state.pendingCommands?.delete(cmdKey); fetchESPStatus(); }, 1000);
 }
 
-async function loadAutomations() {
-  const result = await apiCall('automationApi', 'GET');
-  state.automations = result.rules || [];
-  render();
-}
-
-async function toggleAutomation(id, enabled) {
-  await apiCall('automationApi', 'POST', { id, enabled });
-  toast(enabled ? 'เปิดแล้ว' : 'ปิดแล้ว', 'success');
-  loadAutomations();
-}
-
-async function deleteAutomation(id) {
-  if (!confirm('ลบกฎนี้?')) return;
-  await apiCall('automationApi', 'DELETE', { id });
-  toast('ลบแล้ว', 'success');
-  loadAutomations();
-}
-
-async function quickControl(target, state) {
-  const deviceId = state.dashboardData?.devices?.[0]?.name || 'ESP8266-Farm-01';
-  toast(`${target === 'pump' ? 'ปั๊ม' : target}: ${state ? 'เปิด' : 'ปิด'}...`, 'info');
-  await apiCall('deviceControl', 'POST', { deviceId, target, state });
-  toast(`${state ? 'เปิด' : 'ปิด'}แล้ว`, 'success');
-  loadDashboardData();
-}
-
-async function setMode(auto) {
-  const deviceId = state.dashboardData?.devices?.[0]?.name || 'ESP8266-Farm-01';
-  toast(`โหมด: ${auto ? 'AUTO' : 'MANUAL'}...`, 'info');
-  await apiCall('deviceControl', 'POST', { deviceId, auto });
-  toast(`โหมด${auto ? 'AUTO' : 'MANUAL'}แล้ว`, 'success');
+async function setMode(isAuto) {
+  await espPost('/api/settings', { auto: isAuto });
+  toast(`โหมด ${isAuto ? 'AUTO' : 'MANUAL'}`, isAuto ? 'success' : 'warn');
+  fetchESPStatus();
 }
 
 async function startTimer() {
   const duration = parseInt($('#timerDuration')?.value || 5);
-  const deviceId = state.dashboardData?.devices?.[0]?.name || 'ESP8266-Farm-01';
-  toast(`ตั้งเวลา ${duration} นาที...`, 'info');
-  await apiCall('deviceControl', 'POST', { deviceId, action: 'start', duration });
-  toast(`เริ่มจับเวลา ${duration} นาที`, 'success');
+  if (duration < 1 || duration > 120) { toast('ระยะเวลา 1-120 นาที', 'error'); return; }
+  await espPost('/api/timer', { action: 'start', duration });
+  toast(`ตั้งเวลา ${duration} นาที`, 'success');
+  fetchESPStatus();
 }
 
 async function stopTimer() {
-  const deviceId = state.dashboardData?.devices?.[0]?.name || 'ESP8266-Farm-01';
-  await apiCall('deviceControl', 'POST', { deviceId, action: 'stop' });
-  toast('หยุดจับเวลาแล้ว', 'success');
+  await espPost('/api/timer', { action: 'stop' });
+  toast('หยุดตัวจับเวลา', 'info');
+  fetchESPStatus();
 }
 
 async function emergencyStop() {
   if (!confirm('หยุดทุกระบบทันที?')) return;
-  const deviceId = state.dashboardData?.devices?.[0]?.name || 'ESP8266-Farm-01';
-  toast('หยุดฉุกเฉิน...', 'warn');
-  await apiCall('deviceControl', 'POST', { deviceId, command: 'emergency_stop' });
-  toast('หยุดทุกระบบแล้ว!', 'error');
-  loadDashboardData();
+  // Turn off all relays and set to manual
+  await espPost('/api/pump', { state: false });
+  await espPost('/api/zone', { zone: 1, state: false });
+  await espPost('/api/zone', { zone: 2, state: false });
+  await espPost('/api/settings', { auto: false });
+  toast('หยุดฉุกเฉิน — ทุกระบบปิดแล้ว', 'error');
+  fetchESPStatus();
 }
 
-// ========== FINANCE PAGE ==========
-function renderFinance() {
-  const f = state.finance || { records: [], summary: { totalIncome: 0, totalExpense: 0, profit: 0 }, monthlyData: [] };
-  return `
-    <div class="fade-in space-y-6">
-      <h1 class="text-2xl font-bold">💰 การจัดการการเงิน</h1>
-
-      <!-- Summary -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover">
-          <div class="text-sm text-gray-500">รายรับ</div>
-          <div class="text-2xl font-bold text-green-500">฿${(f.summary?.totalIncome || 0).toLocaleString()}</div>
-        </div>
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover">
-          <div class="text-sm text-gray-500">รายจ่าย</div>
-          <div class="text-2xl font-bold text-red-500">฿${(f.summary?.totalExpense || 0).toLocaleString()}</div>
-        </div>
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover">
-          <div class="text-sm text-gray-500">กำไร</div>
-          <div class="text-2xl font-bold ${(f.summary?.profit || 0) >= 0 ? 'text-green-500' : 'text-red-500'}">฿${(f.summary?.profit || 0).toLocaleString()}</div>
-        </div>
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover">
-          <div class="text-sm text-gray-500">จำนวนรายการ</div>
-          <div class="text-2xl font-bold text-farm">${f.summary?.recordCount || 0}</div>
-        </div>
-      </div>
-
-      <!-- Actions -->
-      <div class="flex flex-wrap gap-3">
-        <button onclick="showFinanceForm()" class="px-4 py-2 bg-farm text-white rounded-lg text-sm font-medium">+ เพิ่มรายการ</button>
-        <button onclick="exportCSV()" class="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium">Export CSV</button>
-        <button onclick="exportPDF()" class="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium">Export PDF</button>
-      </div>
-
-      <!-- Records -->
-      <div class="bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden">
-        <table class="w-full text-sm">
-          <thead class="bg-gray-50 dark:bg-gray-700">
-            <tr>
-              <th class="px-4 py-3 text-left">วันที่</th>
-              <th class="px-4 py-3 text-left">ประเภท</th>
-              <th class="px-4 py-3 text-left">รายละเอียด</th>
-              <th class="px-4 py-3 text-left">พืช</th>
-              <th class="px-4 py-3 text-right">จำนวนเงิน</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${(f.records || []).slice(0, 20).map(r => `
-              <tr class="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
-                <td class="px-4 py-2">${r.date || '-'}</td>
-                <td class="px-4 py-2"><span class="px-2 py-1 rounded text-xs ${r.type === 'income' ? 'bg-green-100 text-green-700' : r.type === 'expense' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}">${r.type}</span></td>
-                <td class="px-4 py-2">${r.description || r.notes || '-'}</td>
-                <td class="px-4 py-2">${r.crop || '-'}</td>
-                <td class="px-4 py-2 text-right font-medium ${r.type === 'income' ? 'text-green-500' : 'text-red-500'}">฿${(r.amount || 0).toLocaleString()}</td>
-              </tr>
-            `).join('') || '<tr><td colspan="5" class="text-center text-gray-400 py-8">ไม่มีข้อมูล</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-
-      <!-- Finance Form -->
-      <div id="financeForm" class="hidden fixed inset-0 bg-black bg-opacity-50 z-40 flex items-center justify-center p-4">
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 w-full max-w-md">
-          <h3 class="text-lg font-bold mb-4">เพิ่มรายการการเงิน</h3>
-          <div class="space-y-3">
-            <div><label class="text-sm font-medium">ประเภท</label><select id="finType" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"><option value="income">รายรับ</option><option value="expense">รายจ่าย</option><option value="harvest">เก็บเกี่ยว</option><option value="inventory">สินค้าคงคลัง</option></select></div>
-            <div><label class="text-sm font-medium">จำนวนเงิน</label><input id="finAmount" type="number" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700" placeholder="0"></div>
-            <div><label class="text-sm font-medium">พืช</label><input id="finCrop" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700" placeholder="เช่น: มะม่วง"></div>
-            <div><label class="text-sm font-medium">รายละเอียด</label><input id="finDesc" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700" placeholder="รายละเอียด..."></div>
-          </div>
-          <div class="mt-4 flex gap-2">
-            <button onclick="createFinance()" class="flex-1 py-2 bg-farm text-white rounded-lg font-medium">บันทึก</button>
-            <button onclick="hideFinanceForm()" class="px-6 py-2 bg-gray-300 dark:bg-gray-600 rounded-lg">ยกเลิก</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function showFinanceForm() { $('#financeForm')?.classList.remove('hidden'); }
-function hideFinanceForm() { $('#financeForm')?.classList.add('hidden'); }
-
-async function createFinance() {
-  const type = $('#finType').value;
-  const amount = parseFloat($('#finAmount').value);
-  const crop = $('#finCrop').value;
-  const description = $('#finDesc').value;
-  if (!amount) { toast('กรุณากรอกจำนวนเงิน', 'error'); return; }
-  toast('กำลังบันทึก...', 'info');
-  await apiCall('financeApi', 'POST', { type, amount, crop, description });
-  toast('บันทึกแล้ว!', 'success');
-  hideFinanceForm();
-  loadFinance();
-}
-
-async function loadFinance() {
-  const result = await apiCall('financeApi', 'GET');
-  state.finance = result;
-  render();
-}
-
-function exportCSV() {
-  window.open(`${fnUrl('financeApi')}?format=csv`, '_blank');
-  toast('ส่งออก CSV...', 'info');
-}
-
-function exportPDF() {
-  toast('กำลังสร้าง PDF...', 'info');
-  // Simple PDF export using print
-  const f = state.finance || {};
-  const win = window.open('', '_blank');
-  win.document.write(`<html><head><title>Finance Report</title><style>body{font-family:sans-serif;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:left}</style></head><body>`);
-  win.document.write(`<h1>YAT Smart Farm - Finance Report</h1>`);
-  win.document.write(`<p>Total Income: ฿${(f.summary?.totalIncome||0).toLocaleString()}</p>`);
-  win.document.write(`<p>Total Expense: ฿${(f.summary?.totalExpense||0).toLocaleString()}</p>`);
-  win.document.write(`<p>Profit: ฿${(f.summary?.profit||0).toLocaleString()}</p>`);
-  win.document.write(`<table><tr><th>Date</th><th>Type</th><th>Description</th><th>Amount</th></tr>`);
-  (f.records || []).forEach(r => { win.document.write(`<tr><td>${r.date||'-'}</td><td>${r.type||'-'}</td><td>${r.description||'-'}</td><td>฿${(r.amount||0).toLocaleString()}</td></tr>`); });
-  win.document.write(`</table></body></html>`);
-  win.document.close();
-  setTimeout(() => win.print(), 500);
-}
-
-// ========== OTA PAGE ==========
-function renderOta() {
-  const firmwares = state.firmware || [];
-  return `
-    <div class="fade-in space-y-6">
-      <h1 class="text-2xl font-bold">⬆️ OTA Firmware Management</h1>
-
-      <!-- Upload Form -->
-      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
-        <h3 class="font-semibold mb-4">อัพโหลดเฟิร์มแวร์ใหม่</h3>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div><label class="text-sm font-medium">เวอร์ชัน</label><input id="fwVersion" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700" placeholder="V35"></div>
-          <div><label class="text-sm font-medium">ชื่อไฟล์</label><input id="fwFileName" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700" placeholder="firmware_v35.bin"></div>
-          <div><label class="text-sm font-medium">Download URL</label><input id="fwUrl" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700" placeholder="https://..."></div>
-        </div>
-        <div class="mt-3"><label class="text-sm font-medium">Changelog</label><textarea id="fwChangelog" rows="2" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700" placeholder="Bug fixes..."></textarea></div>
-        <button onclick="uploadFirmware()" class="mt-3 px-6 py-2 bg-farm text-white rounded-lg font-medium hover:shadow-lg">อัพโหลด</button>
-      </div>
-
-      <!-- Firmware List -->
-      <div class="bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden">
-        <table class="w-full text-sm">
-          <thead class="bg-gray-50 dark:bg-gray-700">
-            <tr><th class="px-4 py-3 text-left">Version</th><th class="px-4 py-3 text-left">Status</th><th class="px-4 py-3 text-left">Uploaded</th><th class="px-4 py-3 text-left">Size</th><th class="px-4 py-3 text-left">Actions</th></tr>
-          </thead>
-          <tbody>
-            ${firmwares.map(fw => `
-              <tr class="border-t border-gray-100 dark:border-gray-700">
-                <td class="px-4 py-3 font-medium">${fw.version}</td>
-                <td class="px-4 py-3"><span class="px-2 py-1 rounded text-xs ${fw.status === 'published' ? 'bg-green-100 text-green-700' : fw.status === 'deprecated' ? 'bg-gray-100 text-gray-500' : 'bg-yellow-100 text-yellow-700'}">${fw.status}</span></td>
-                <td class="px-4 py-3">${formatTime(fw.createdAt || fw.uploadedAt)}</td>
-                <td class="px-4 py-3">${fw.fileSize ? `${(fw.fileSize/1024).toFixed(0)} KB` : '-'}</td>
-                <td class="px-4 py-3 flex gap-2">
-                  ${fw.status !== 'published' ? `<button onclick="publishFirmware('${fw.id}','${fw.version}')" class="px-2 py-1 bg-green-500 text-white rounded text-xs">Publish</button>` : ''}
-                  <button onclick="rollbackFirmware('${fw.id}')" class="px-2 py-1 bg-orange-500 text-white rounded text-xs">Rollback</button>
-                  <button onclick="deleteFirmware('${fw.id}')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">Delete</button>
-                </td>
-              </tr>
-            `).join('') || '<tr><td colspan="5" class="text-center text-gray-400 py-8">ยังไม่มีเฟิร์มแวร์</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
-}
-
-async function loadFirmware() {
-  const result = await apiCall('firmwareApi', 'GET');
-  state.firmware = result.firmwares || [];
-  render();
-}
-
-async function uploadFirmware() {
-  const version = $('#fwVersion').value;
-  const fileName = $('#fwFileName').value;
-  const downloadUrl = $('#fwUrl').value;
-  const changelog = $('#fwChangelog').value;
-  if (!version) { toast('กรุณากรอกเวอร์ชัน', 'error'); return; }
-  toast('กำลังอัพโหลด...', 'info');
-  await apiCall('firmwareApi', 'POST', { version, fileName, downloadUrl, changelog });
-  toast('อัพโหลดสำเร็จ!', 'success');
-  loadFirmware();
-}
-
-async function publishFirmware(id, version) {
-  await apiCall('firmwareApi', 'POST', { id, action: 'publish', version });
-  toast(`เผยแพร่ v${version} แล้ว`, 'success');
-  loadFirmware();
-}
-
-async function rollbackFirmware(id) {
-  if (!confirm('ย้อนกลับเฟิร์มแวร์?')) return;
-  await apiCall('firmwareApi', 'POST', { id, action: 'rollback' });
-  toast('ย้อนกลับแล้ว', 'success');
-  loadFirmware();
-}
-
-async function deleteFirmware(id) {
-  if (!confirm('ลบเฟิร์มแวร์นี้?')) return;
-  await apiCall('firmwareApi', 'DELETE', { id });
-  toast('ลบแล้ว', 'success');
-  loadFirmware();
-}
-
-// ========== NOTIFICATIONS PAGE ==========
-function renderNotifications() {
-  const notifications = state.notifications || [];
-  const eventLabels = {
-    pump_on: 'ปั๊มเปิด', pump_off: 'ปั๊มปิด', high_temp: 'อุณหภูมิสูง',
-    low_soil: 'ความชื้นดินต่ำ', rain_detected: 'ตรวจพบฝน', tank_empty: 'ถังน้ำแห้ง',
-    device_online: 'อุปกรณ์ออนไลน์', device_offline: 'อุปกรณ์ออฟไลน์',
-    sensor_error: 'เซ็นเซอร์ผิดพลาด', ota_started: 'OTA เริ่ม', ota_success: 'OTA สำเร็จ', ota_failed: 'OTA ล้มเหลว'
-  };
-  const eventColors = {
-    pump_on: 'green', pump_off: 'red', high_temp: 'orange', low_soil: 'blue',
-    rain_detected: 'blue', tank_empty: 'red', device_online: 'green', device_offline: 'red',
-    sensor_error: 'red', ota_started: 'blue', ota_success: 'green', ota_failed: 'red'
-  };
-  
-  return `
-    <div class="fade-in space-y-6">
-      <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-bold">🔔 การแจ้งเตือน Telegram</h1>
-        <button onclick="testTelegram()" class="px-4 py-2 bg-farm-info text-white rounded-lg text-sm font-medium">ทดสอบ Telegram</button>
-      </div>
-      
-      <!-- Notification Events -->
-      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
-        <h3 class="font-semibold mb-3">การแจ้งเตือนที่ส่ง</h3>
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
-          ${Object.entries(eventLabels).map(([k, v]) => {
-            const count = notifications.filter(n => n.event === k).length;
-            return `<div class="flex items-center justify-between p-2 rounded-lg bg-gray-50 dark:bg-gray-700">
-              <span class="text-sm">${v}</span>
-              <span class="px-2 py-0.5 rounded-full text-xs bg-${eventColors[k]}-100 text-${eventColors[k]}-700">${count}</span>
-            </div>`;
-          }).join('')}
-        </div>
-      </div>
-
-      <!-- Notification Log -->
-      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
-        <h3 class="font-semibold mb-3">บันทึกการแจ้งเตือน</h3>
-        <div class="space-y-2 max-h-96 overflow-y-auto">
-          ${notifications.slice(0, 50).map(n => `
-            <div class="flex items-start gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-700">
-              <span class="text-lg">${n.status === 'sent' ? '✅' : '❌'}</span>
-              <div class="flex-1">
-                <div class="text-sm font-medium">${eventLabels[n.event] || n.event}</div>
-                <div class="text-xs text-gray-500">${n.message || ''}</div>
-                <div class="text-xs text-gray-400">${formatTime(n.timestamp)}</div>
-              </div>
-            </div>
-          `).join('') || '<div class="text-center text-gray-400 py-8">ไม่มีการแจ้งเตือน</div>'}
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-async function loadNotifications() {
-  const result = await apiCall('telegramApi', 'GET');
-  state.notifications = result.notifications || [];
-  render();
-}
-
-async function testTelegram() {
-  toast('กำลังส่งข้อความทดสอบ...', 'info');
-  const result = await apiCall('telegramApi', 'GET', null);
-  // Use query param approach
-  try {
-    const res = await fetch(`${fnUrl('telegramApi')}?action=test`);
-    const data = await res.json();
-    toast(data.status === 'ok' ? 'ส่งข้อความทดสอบสำเร็จ!' : 'ล้มเหลว: ' + (data.error || ''), data.status === 'ok' ? 'success' : 'error');
-  } catch(e) {
-    toast('ล้มเหลว: ' + e.message, 'error');
-  }
+async function saveAISettings() {
+  const threshold = parseInt($('#aiSoilThreshold')?.value || 500);
+  const duration = parseInt($('#aiWateringDuration')?.value || 5);
+  await espPost('/api/settings', { soilThreshold: threshold, wateringDuration: duration });
+  toast('บันทึกการตั้งค่า AI แล้ว', 'success');
+  fetchESPStatus();
 }
 
 // ========== LOGS PAGE ==========
@@ -1182,42 +739,24 @@ function renderLogs() {
     <div class="fade-in space-y-6">
       <div class="flex items-center justify-between">
         <h1 class="text-2xl font-bold">📋 บันทึกระบบ</h1>
-        <div class="flex gap-2">
-          <select id="logFilter" onchange="filterLogs()" class="px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm">
-            <option value="">ทั้งหมด</option>
-            <option value="info">Info</option>
-            <option value="warning">Warning</option>
-            <option value="error">Error</option>
-            <option value="debug">Debug</option>
-            <option value="system">System</option>
-          </select>
-        </div>
+        <button onclick="fetchESPLogs().then(()=>render())" class="px-4 py-2 bg-farm text-white rounded-lg text-sm font-medium">รีเฟรช</button>
       </div>
-
       <div class="bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden">
         <div class="max-h-[600px] overflow-y-auto">
           <table class="w-full text-sm">
             <thead class="bg-gray-50 dark:bg-gray-700 sticky top-0">
               <tr>
-                <th class="px-4 py-3 text-left">เวลา</th>
-                <th class="px-4 py-3 text-left">ประเภท</th>
-                <th class="px-4 py-3 text-left">อุปกรณ์</th>
-                <th class="px-4 py-3 text-left">การกระทำ</th>
+                <th class="px-4 py-3 text-left">Timestamp</th>
                 <th class="px-4 py-3 text-left">ข้อความ</th>
-                <th class="px-4 py-3 text-left">ผล</th>
               </tr>
             </thead>
             <tbody>
-              ${logs.slice(0, 100).map(l => `
+              ${logs.slice(-100).reverse().map(l => `
                 <tr class="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
-                  <td class="px-4 py-2 text-xs whitespace-nowrap">${formatTime(l.timestamp)}</td>
-                  <td class="px-4 py-2"><span class="px-2 py-1 rounded text-xs ${l.type === 'error' ? 'bg-red-100 text-red-700' : l.type === 'warning' ? 'bg-yellow-100 text-yellow-700' : l.type === 'debug' ? 'bg-gray-100 text-gray-500' : 'bg-blue-100 text-blue-700'}">${l.type || 'info'}</span></td>
-                  <td class="px-4 py-2 text-xs">${l.deviceId || '-'}</td>
-                  <td class="px-4 py-2 text-xs">${l.action || '-'}</td>
+                  <td class="px-4 py-2 text-xs whitespace-nowrap">${l.timestamp || '-'}</td>
                   <td class="px-4 py-2">${l.message || '-'}</td>
-                  <td class="px-4 py-2"><span class="text-xs ${l.result === 'success' ? 'text-green-500' : 'text-red-500'}">${l.result || '-'}</span></td>
                 </tr>
-              `).join('') || '<tr><td colspan="6" class="text-center text-gray-400 py-8">ไม่มีบันทึก</td></tr>'}
+              `).join('') || '<tr><td colspan="2" class="text-center text-gray-400 py-8">ไม่มีบันทึก</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -1226,114 +765,73 @@ function renderLogs() {
   `;
 }
 
-async function loadLogs() {
-  const result = await apiCall('systemLogsApi', 'GET');
-  state.logs = result.logs || [];
-  render();
-}
-
-function filterLogs() {
-  const filter = $('#logFilter').value;
-  if (!filter) { render(); return; }
-  state.logs = state.logs.filter(l => l.type === filter);
-  render();
-}
-
 // ========== SETTINGS PAGE ==========
 function renderSettings() {
-  const s = state.settings || {};
   return `
     <div class="fade-in space-y-6">
       <h1 class="text-2xl font-bold">🔧 ตั้งค่าระบบ</h1>
 
+      <!-- Device Settings -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
+        <h3 class="font-semibold mb-4">📡 ข้อมูลอุปกรณ์</h3>
+        <div class="space-y-2 text-sm">
+          <div class="flex justify-between"><span class="text-gray-500">Device ID:</span><span class="font-medium">YAT-FARM-001</span></div>
+          <div class="flex justify-between"><span class="text-gray-500">Firmware:</span><span class="font-medium">V3.4 (Fixed)</span></div>
+          <div class="flex justify-between"><span class="text-gray-500">Controller:</span><span class="font-medium">ESP8266 NodeMCU</span></div>
+          <div class="flex justify-between"><span class="text-gray-500">MQTT Server:</span><span class="font-medium font-mono text-xs">broker.hivemq.com:1883</span></div>
+          <div class="flex justify-between"><span class="text-gray-500">MQTT Status Topic:</span><span class="font-mono text-xs">yat/farm/YAT-FARM-001/status</span></div>
+          <div class="flex justify-between"><span class="text-gray-500">MQTT Control Topic:</span><span class="font-mono text-xs">yat/farm/YAT-FARM-001/control</span></div>
+        </div>
+      </div>
+
       <!-- Telegram Settings -->
       <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
-        <h3 class="font-semibold mb-4">🔔 ตั้งค่า Telegram</h3>
+        <h3 class="font-semibold mb-4">🔔 Telegram (ตั้งค่าใน Firmware)</h3>
+        <p class="text-sm text-gray-500">เปลี่ยน BOT_TOKEN และ CHAT_ID ในไฟล์ Firmware โดยตรง</p>
+      </div>
+
+      <!-- MQTT Bridge Config -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
+        <h3 class="font-semibold mb-4">📡 MQTT Configuration</h3>
         <div class="space-y-3">
-          <div><label class="text-sm font-medium">Bot Token</label><input id="setTgToken" value="${s.telegramBotToken || ''}" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm" placeholder="123456:ABC-DEF..."></div>
-          <div><label class="text-sm font-medium">Chat ID</label><input id="setTgChatId" value="${s.telegramChatId || ''}" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm" placeholder="123456789"></div>
+          <div><label class="text-sm font-medium">MQTT Broker</label><input value="broker.hivemq.com" readonly class="w-full mt-1 px-3 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-xs font-mono"></div>
+          <div><label class="text-sm font-medium">Port</label><input value="1883" readonly class="w-full mt-1 px-3 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-xs"></div>
+          <div><label class="text-sm font-medium">Client ID</label><input value="YAT-FARM-001" readonly class="w-full mt-1 px-3 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-xs font-mono"></div>
+        </div>
+        <p class="mt-2 text-xs text-gray-400">เปลี่ยน MQTT Server ในไฟล์ Firmware (MQTT_SERVER, MQTT_PORT)</p>
+      </div>
+
+      <!-- System Actions -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
+        <h3 class="font-semibold mb-4">⚙️ การจัดการระบบ</h3>
+        <div class="flex flex-wrap gap-3">
+          <button onclick="controlDevice('restart')" class="px-4 py-2 bg-yellow-500 text-white rounded-lg text-sm font-medium">รีสตาร์ทอุปกรณ์</button>
+          <button onclick="controlDevice('resetWifi')" class="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium">รีเซ็ต WiFi</button>
         </div>
       </div>
-
-      <!-- Firebase Config -->
-      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
-        <h3 class="font-semibold mb-4">🔥 Firebase Configuration</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-          <div><label class="font-medium">API Key</label><input value="${s.firebaseConfig?.apiKey || ''}" readonly class="w-full mt-1 px-3 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-xs"></div>
-          <div><label class="font-medium">Auth Domain</label><input value="${s.firebaseConfig?.authDomain || ''}" readonly class="w-full mt-1 px-3 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-xs"></div>
-          <div><label class="font-medium">Database URL</label><input value="${s.firebaseConfig?.databaseURL || ''}" readonly class="w-full mt-1 px-3 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-xs"></div>
-          <div><label class="font-medium">Project ID</label><input value="${s.firebaseConfig?.projectId || ''}" readonly class="w-full mt-1 px-3 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-xs"></div>
-          <div><label class="font-medium">Storage Bucket</label><input value="${s.firebaseConfig?.storageBucket || ''}" readonly class="w-full mt-1 px-3 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-xs"></div>
-          <div><label class="font-medium">App ID</label><input value="${s.firebaseConfig?.appId || ''}" readonly class="w-full mt-1 px-3 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-xs"></div>
-        </div>
-      </div>
-
-      <!-- ESP8266 API Key -->
-      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
-        <h3 class="font-semibold mb-4">🔑 ESP8266 API Key</h3>
-        <div><label class="text-sm font-medium">API Key</label><input id="setApiKey" value="${s.apiKey || ''}" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm font-mono" placeholder="yat-smart-farm-api-key"></div>
-      </div>
-
-      <!-- Thresholds -->
-      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
-        <h3 class="font-semibold mb-4">📊 ค่าเกณฑ์การแจ้งเตือน</h3>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div><label class="text-sm font-medium">อุณหภูมิสูง (°C)</label><input id="setHighTemp" type="number" value="${s.thresholds?.highTemp || 40}" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"></div>
-          <div><label class="text-sm font-medium">ความชื้นดินต่ำ</label><input id="setLowSoil" type="number" value="${s.thresholds?.lowSoil || 30}" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"></div>
-          <div><label class="text-sm font-medium">แบตเตอรี่ต่ำ (%)</label><input id="setLowBat" type="number" value="${s.thresholds?.lowBattery || 20}" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"></div>
-          <div><label class="text-sm font-medium">น้ำต่ำ (%)</label><input id="setLowWater" type="number" value="${s.thresholds?.lowWaterLevel || 15}" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"></div>
-        </div>
-      </div>
-
-      <!-- General Settings -->
-      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
-        <h3 class="font-semibold mb-4">⚙️ ตั้งค่าทั่วไป</h3>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div><label class="text-sm font-medium">ภาษา</label><select id="setLang" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"><option value="th" ${s.language === 'th' ? 'selected' : ''}>ไทย</option><option value="en" ${s.language === 'en' ? 'selected' : ''}>English</option></select></div>
-          <div><label class="text-sm font-medium">Timezone</label><input id="setTz" value="${s.timezone || 'Asia/Bangkok'}" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"></div>
-          <div><label class="text-sm font-medium">Theme</label><select id="setTheme" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"><option value="light" ${s.theme === 'light' ? 'selected' : ''}>Light</option><option value="dark" ${s.theme === 'dark' ? 'selected' : ''}>Dark</option></select></div>
-        </div>
-      </div>
-
-      <button onclick="saveSettings()" class="px-6 py-3 bg-farm text-white rounded-lg font-semibold hover:shadow-lg">บันทึกการตั้งค่า</button>
     </div>
   `;
 }
 
-async function loadSettings() {
-  const result = await apiCall('settingsApi', 'GET');
-  state.settings = result.settings || {};
-  render();
+async function loadSettings() { render(); }
+
+// ========== SIMPLE PAGES ==========
+function renderFinance() {
+  return `<div class="fade-in"><h1 class="text-2xl font-bold mb-4">💰 การเงิน</h1><div class="bg-white dark:bg-gray-800 rounded-xl shadow p-8 text-center text-gray-400">ฟีเจอร์การเงินต้องการ Backend Server — ใช้ ESP8266 REST API สำหรับควบคุมอุปกรณ์</div></div>`;
 }
 
-async function saveSettings() {
-  toast('กำลังบันทึก...', 'info');
-  const data = {
-    telegramBotToken: $('#setTgToken')?.value || '',
-    telegramChatId: $('#setTgChatId')?.value || '',
-    apiKey: $('#setApiKey')?.value || '',
-    language: $('#setLang')?.value || 'th',
-    timezone: $('#setTz')?.value || 'Asia/Bangkok',
-    theme: $('#setTheme')?.value || 'light',
-    thresholds: {
-      highTemp: parseInt($('#setHighTemp')?.value || 40),
-      lowSoil: parseInt($('#setLowSoil')?.value || 30),
-      lowBattery: parseInt($('#setLowBat')?.value || 20),
-      lowWaterLevel: parseInt($('#setLowWater')?.value || 15)
-    }
-  };
-  await apiCall('settingsApi', 'POST', data);
-  toast('บันทึกการตั้งค่าแล้ว!', 'success');
-  if (data.theme !== state.theme) { state.theme = data.theme; applyTheme(); }
+function renderOta() {
+  return `<div class="fade-in"><h1 class="text-2xl font-bold mb-4">⬆️ OTA Firmware</h1><div class="bg-white dark:bg-gray-800 rounded-xl shadow p-8"><p class="text-sm">OTA ทำงานผ่าน ArduinoOTA บน ESP8266 โดยตรง — เข้าถึงได้ผ่าน Arduino IDE หรือ PlatformIO</p><p class="text-sm mt-2 text-gray-500">Hostname: YAT-SMART-FARM · Port: 8266</p></div></div>`;
+}
+
+function renderNotifications() {
+  return `<div class="fade-in"><h1 class="text-2xl font-bold mb-4">🔔 แจ้งเตือน</h1><div class="bg-white dark:bg-gray-800 rounded-xl shadow p-8 text-center text-gray-400">การแจ้งเตือนส่งผ่าน Telegram Bot — ตั้งค่า BOT_TOKEN และ CHAT_ID ใน Firmware</div></div>`;
 }
 
 // ========== MAIN RENDER ==========
 function render() {
   const app = $('#app');
-  if (!state.user) {
-    app.innerHTML = renderLogin();
-    return;
-  }
+  if (!state.user) { app.innerHTML = renderLogin(); return; }
 
   let content = '';
   switch (state.currentPage) {
@@ -1347,36 +845,44 @@ function render() {
     case 'settings': content = renderSettings(); break;
     default: content = renderDashboard();
   }
-
   app.innerHTML = renderLayout(content);
-  
-  // Render charts after DOM is ready
+
+  // Render charts after DOM update
   if (state.currentPage === 'dashboard') {
-    setTimeout(renderCharts, 100);
+    setTimeout(() => renderCharts(), 100);
   }
+}
+
+// ========== APP START ==========
+function startApp() {
+  applyTheme();
+  render();
+  // Start polling ESP8266 status
+  fetchESPStatus();
+  fetchESPLogs();
+  if (state.refreshTimer) clearInterval(state.refreshTimer);
+  state.refreshTimer = setInterval(() => {
+    fetchESPStatus();
+    if (state.currentPage === 'logs') fetchESPLogs();
+  }, POLL_INTERVAL);
 }
 
 // ========== INIT ==========
-function init() {
-  // Load theme
-  state.theme = localStorage.getItem('theme') || 'light';
+window.addEventListener('DOMContentLoaded', () => {
   applyTheme();
-  
-  // Restore session
-  const saved = localStorage.getItem('user') || sessionStorage.getItem('user');
+  // Auto-login from localStorage
+  const saved = localStorage.getItem('user');
   if (saved) {
-    try { state.user = JSON.parse(saved); } catch(e) {}
+    try { state.user = JSON.parse(saved); startApp(); } catch(e) { render(); }
+  } else {
+    render();
   }
-  
-  render();
-  
-  if (state.user) {
-    loadDashboardData();
-  }
-}
+});
 
-// Start
-init();
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+  if (state.refreshTimer) clearInterval(state.refreshTimer);
+});
 </script>
 </body>
 </html>
