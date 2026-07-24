@@ -3,769 +3,1380 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SMART FARM PRO ULTIMATE V35</title>
+    <title>YAT Smart Farm V34 FINAL</title>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#1b5e20">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/recharts@2.12.0/dist/umd/Recharts.min.js"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              farm: { DEFAULT: '#1b5e20', light: '#2e7d32', accent: '#4caf50', bg: '#e8f5e9', danger: '#f44336', warn: '#ff9800', info: '#2196F3' }
+            }
+          }
+        }
+      }
+    </script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            min-height: 100vh;
-            transition: background 0.3s ease;
-        }
-
-        body.dark-mode {
-            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
-            color: #e0e0e0;
-        }
-
-        .header {
-            background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%);
-            color: white;
-            padding: 20px;
-            text-align: center;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .header h1 {
-            font-size: 28px;
-            flex: 1;
-        }
-
-        .theme-toggle {
-            background: rgba(255, 255, 255, 0.2);
-            border: none;
-            color: white;
-            padding: 8px 12px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 18px;
-        }
-
-        .theme-toggle:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
-
-        .login-container {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            padding: 20px;
-        }
-
-        .login-box {
-            background: white;
-            padding: 40px;
-            border-radius: 15px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
-            width: 100%;
-            max-width: 400px;
-        }
-
-        body.dark-mode .login-box {
-            background: #2d2d2d;
-            color: #e0e0e0;
-        }
-
-        .login-box h2 {
-            margin-bottom: 30px;
-            color: #1b5e20;
-            text-align: center;
-        }
-
-        body.dark-mode .login-box h2 {
-            color: #4caf50;
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 500;
-        }
-
-        .form-group input {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #ddd;
-            border-radius: 8px;
-            font-size: 16px;
-            transition: border-color 0.3s;
-        }
-
-        body.dark-mode .form-group input {
-            background: #3d3d3d;
-            color: #e0e0e0;
-            border-color: #555;
-        }
-
-        .form-group input:focus {
-            outline: none;
-            border-color: #1b5e20;
-        }
-
-        .login-btn {
-            width: 100%;
-            padding: 12px;
-            background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-
-        .login-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(27, 94, 32, 0.3);
-        }
-
-        #dashboard {
-            display: none;
-            padding: 20px;
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-            margin-top: 20px;
-        }
-
-        .card {
-            background: white;
-            padding: 25px;
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-            transition: transform 0.3s, box-shadow 0.3s;
-        }
-
-        body.dark-mode .card {
-            background: #2d2d2d;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-        }
-
-        .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-        }
-
-        .card h2 {
-            color: #1b5e20;
-            margin-bottom: 15px;
-            font-size: 20px;
-        }
-
-        body.dark-mode .card h2 {
-            color: #4caf50;
-        }
-
-        .status-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 10px 0;
-            border-bottom: 1px solid #eee;
-        }
-
-        body.dark-mode .status-item {
-            border-bottom-color: #444;
-        }
-
-        .status-item:last-child {
-            border-bottom: none;
-        }
-
-        .status-label {
-            font-weight: 600;
-            color: #666;
-        }
-
-        body.dark-mode .status-label {
-            color: #aaa;
-        }
-
-        .status-value {
-            color: #1b5e20;
-            font-weight: 700;
-        }
-
-        body.dark-mode .status-value {
-            color: #4caf50;
-        }
-
-        .control-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            gap: 10px;
-            margin-top: 15px;
-        }
-
-        .btn {
-            padding: 12px;
-            border: none;
-            border-radius: 8px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-            font-size: 14px;
-        }
-
-        .btn-on {
-            background: #4caf50;
-            color: white;
-        }
-
-        .btn-on:hover {
-            background: #45a049;
-            transform: translateY(-2px);
-        }
-
-        .btn-off {
-            background: #f44336;
-            color: white;
-        }
-
-        .btn-off:hover {
-            background: #da190b;
-            transform: translateY(-2px);
-        }
-
-        .btn-auto {
-            background: #2196F3;
-            color: white;
-        }
-
-        .btn-auto:hover {
-            background: #0b7dda;
-            transform: translateY(-2px);
-        }
-
-        .btn-manual {
-            background: #ff9800;
-            color: white;
-        }
-
-        .btn-manual:hover {
-            background: #e68900;
-            transform: translateY(-2px);
-        }
-
-        .timer-input {
-            display: flex;
-            gap: 10px;
-            margin-top: 10px;
-        }
-
-        .timer-input input {
-            flex: 1;
-            padding: 10px;
-            border: 2px solid #ddd;
-            border-radius: 8px;
-            font-size: 14px;
-        }
-
-        body.dark-mode .timer-input input {
-            background: #3d3d3d;
-            color: #e0e0e0;
-            border-color: #555;
-        }
-
-        .timer-input button {
-            padding: 10px 20px;
-            background: #2196F3;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-        }
-
-        .timer-input button:hover {
-            background: #0b7dda;
-        }
-
-        .logs-container {
-            max-height: 300px;
-            overflow-y: auto;
-            background: #f9f9f9;
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 10px;
-        }
-
-        body.dark-mode .logs-container {
-            background: #3d3d3d;
-        }
-
-        .log-entry {
-            padding: 8px;
-            border-bottom: 1px solid #eee;
-            font-size: 12px;
-            color: #666;
-        }
-
-        body.dark-mode .log-entry {
-            border-bottom-color: #555;
-            color: #aaa;
-        }
-
-        .log-entry:last-child {
-            border-bottom: none;
-        }
-
-        .weather-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 8px 0;
-            font-size: 14px;
-        }
-
-        .ai-status {
-            padding: 15px;
-            background: #e8f5e9;
-            border-left: 4px solid #4caf50;
-            border-radius: 4px;
-            margin-top: 10px;
-        }
-
-        body.dark-mode .ai-status {
-            background: #1b5e20;
-            border-left-color: #4caf50;
-        }
-
-        .logout-btn {
-            background: #f44336;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            margin-top: 20px;
-            width: 100%;
-        }
-
-        .logout-btn:hover {
-            background: #da190b;
-        }
-
-        .notification {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 15px 20px;
-            background: #4caf50;
-            color: white;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-            display: none;
-            z-index: 1000;
-        }
-
-        .notification.show {
-            display: block;
-            animation: slideIn 0.3s ease;
-        }
-
-        @keyframes slideIn {
-            from {
-                transform: translateX(400px);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
-
-        @media (max-width: 768px) {
-            .header h1 {
-                font-size: 20px;
-            }
-
-            .dashboard-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .control-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
+      * { -webkit-tap-highlight-color: transparent; }
+      body { font-family: 'Segoe UI', Tahoma, sans-serif; }
+      .fade-in { animation: fadeIn 0.3s ease; }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+      .toast-enter { animation: toastIn 0.3s ease; }
+      @keyframes toastIn { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+      ::-webkit-scrollbar { width: 6px; }
+      ::-webkit-scrollbar-thumb { background: #4caf50; border-radius: 3px; }
+      .nav-item { transition: all 0.2s; }
+      .nav-item:hover { background: rgba(76,175,80,0.15); }
+      .nav-item.active { background: #1b5e20; color: white; }
+      .card-hover { transition: transform 0.3s, box-shadow 0.3s; }
+      .card-hover:hover { transform: translateY(-4px); box-shadow: 0 12px 30px rgba(0,0,0,0.12); }
+      .pulse-dot { animation: pulse 2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+      input, select { outline: none; }
+      input:focus, select:focus { border-color: #1b5e20 !important; box-shadow: 0 0 0 3px rgba(27,94,32,0.1); }
+      @media (max-width: 768px) {
+        .sidebar { transform: translateX(-100%); transition: transform 0.3s; }
+        .sidebar.open { transform: translateX(0); }
+        .mobile-nav { display: flex !important; }
+      }
     </style>
 </head>
-<body>
-    <div class="header">
-        <h1>🌱 SMART FARM PRO ULTIMATE V35</h1>
-        <button class="theme-toggle" onclick="toggleTheme()">🌙</button>
-    </div>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 transition-colors min-h-screen">
+    <div id="app"></div>
+    <div id="toast" class="fixed top-4 right-4 z-50 hidden"></div>
 
-    <div class="login-container" id="login">
-        <div class="login-box">
-            <h2>Admin Login</h2>
-            <div class="form-group">
-                <label for="email">Email</label>
-                <input type="email" id="email" placeholder="klanarong156@gmail.com">
-            </div>
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="kla12345" placeholder="Enter password">
-            </div>
-            <button class="login-btn" onclick="login()">เข้าสู่ระบบ</button>
+<script>
+// ========== CONFIG ==========
+const API_BASE = window.location.origin;
+const BACKEND_BASE = window.location.origin;
+
+// Backend function URL helpers
+function fnUrl(name) {
+  return `${API_BASE}/api/functions/${name}`;
+}
+
+// ========== STATE ==========
+let state = {
+  currentPage: 'dashboard',
+  user: null,
+  theme: 'light',
+  language: 'th',
+  dashboardData: null,
+  devices: [],
+  logs: [],
+  automations: [],
+  finance: null,
+  notifications: [],
+  firmware: [],
+  settings: null,
+  refreshTimer: null,
+  chartRange: '24h',
+};
+
+// ========== UTILITIES ==========
+function $(sel) { return document.querySelector(sel); }
+function $$(sel) { return document.querySelectorAll(sel); }
+
+function toast(message, type = 'success') {
+  const colors = { success: '#4caf50', error: '#f44336', info: '#2196F3', warn: '#ff9800' };
+  const el = document.getElementById('toast');
+  el.innerHTML = `<div class="toast-enter px-5 py-3 rounded-lg shadow-lg text-white font-medium" style="background:${colors[type]}">${message}</div>`;
+  el.classList.remove('hidden');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.add('hidden'), 3000);
+}
+
+async function apiCall(name, method = 'GET', body = null) {
+  try {
+    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body) opts.body = JSON.stringify(body);
+    const res = await fetch(fnUrl(name), opts);
+    const data = await res.json();
+    return data;
+  } catch (e) {
+    console.error(`API ${name} error:`, e);
+    return { status: 'error', error: e.message };
+  }
+}
+
+function formatTime(iso) {
+  if (!iso) return '-';
+  try { return new Date(iso).toLocaleString('th-TH'); } catch(e) { return iso; }
+}
+
+function timeAgo(iso) {
+  if (!iso) return '-';
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 60000) return `${Math.floor(diff/1000)}s ago`;
+  if (diff < 3600000) return `${Math.floor(diff/60000)}m ago`;
+  if (diff < 86400000) return `${Math.floor(diff/3600000)}h ago`;
+  return `${Math.floor(diff/86400000)}d ago`;
+}
+
+function toggleTheme() {
+  state.theme = state.theme === 'light' ? 'dark' : 'light';
+  localStorage.setItem('theme', state.theme);
+  applyTheme();
+  render();
+}
+
+function applyTheme() {
+  if (state.theme === 'dark') {
+    document.documentElement.classList.add('dark');
+  } else {
+    document.documentElement.classList.remove('dark');
+  }
+}
+
+// ========== MOCK DATA GENERATOR ==========
+function mockDashboardData() {
+  const now = new Date();
+  const temp = 28 + Math.sin(Date.now() / 3600000) * 5 + Math.random() * 2;
+  const humidity = 65 + Math.sin(Date.now() / 3600000) * 10 + Math.random() * 3;
+  const soil = 45 + Math.sin(Date.now() / 7200000) * 15 + Math.random() * 3;
+  
+  return {
+    status: 'ok',
+    cards: {
+      temperature: +temp.toFixed(1),
+      humidity: +humidity.toFixed(1),
+      soilMoisture: +soil.toFixed(0),
+      light: Math.floor(20000 + Math.random() * 30000),
+      waterLevel: Math.floor(70 + Math.random() * 30),
+      rain: Math.random() > 0.8,
+      battery: Math.floor(75 + Math.random() * 25),
+      pumpStatus: Math.random() > 0.5,
+      valveStatus: Math.random() > 0.7,
+      relayStatus: [
+        { name: 'pump', state: Math.random() > 0.5 },
+        { name: 'zone1', state: Math.random() > 0.7 },
+        { name: 'zone2', state: false },
+        { name: 'light', state: false }
+      ],
+      onlineDevices: 2,
+      offlineDevices: 0,
+      totalDevices: 2,
+      lastUpdate: now.toISOString(),
+      weather: { temperature: +temp.toFixed(1), humidity: +humidity.toFixed(1), rain: Math.random() > 0.8, rainProbability: Math.floor(Math.random() * 30), windSpeed: +(Math.random() * 15).toFixed(1) }
+    },
+    charts: {
+      '24h': Array.from({length: 24}, (_, i) => ({
+        time: `${String(i).padStart(2,'0')}:00`,
+        temperature: +(25 + Math.sin(i / 3) * 5 + Math.random() * 2).toFixed(1),
+        humidity: +(65 + Math.sin(i / 4) * 10 + Math.random() * 3).toFixed(1),
+        soilMoisture: +(45 + Math.sin(i / 5) * 15 + Math.random() * 3).toFixed(0),
+        light: +(i > 6 && i < 18 ? 30000 + Math.random() * 30000 : Math.random() * 1000).toFixed(0)
+      })),
+      '7d': Array.from({length: 7}, (_, i) => ({
+        date: new Date(now - (6-i) * 86400000).toLocaleDateString('th-TH', { weekday: 'short' }),
+        temperature: +(26 + Math.random() * 6).toFixed(1),
+        humidity: +(65 + Math.random() * 15).toFixed(1),
+        soilMoisture: +(40 + Math.random() * 20).toFixed(0)
+      })),
+      '30d': Array.from({length: 30}, (_, i) => ({
+        date: new Date(now - (29-i) * 86400000).toLocaleDateString('th-TH', { day: 'numeric' }),
+        temperature: +(26 + Math.random() * 6).toFixed(1),
+        humidity: +(65 + Math.random() * 15).toFixed(1),
+        soilMoisture: +(40 + Math.random() * 20).toFixed(0)
+      }))
+    },
+    devices: [
+      { id: 'd1', name: 'ESP8266-Farm-01', online: true, status: 'online', lastSeen: now.toISOString(), firmwareVersion: 'V34', ipAddress: '192.168.1.101', macAddress: 'AA:BB:CC:DD:EE:01', wifiRSSI: -45, battery: 89, relays: [{name:'pump',state:true},{name:'zone1',state:false},{name:'zone2',state:false},{name:'light',state:false}], location: {name:'สวนหลัก', lat:13.7563, lng:100.5014}, timer: {running:true, remaining:3, duration:5} },
+      { id: 'd2', name: 'ESP8266-Farm-02', online: true, status: 'online', lastSeen: now.toISOString(), firmwareVersion: 'V34', ipAddress: '192.168.1.102', macAddress: 'AA:BB:CC:DD:EE:02', wifiRSSI: -52, battery: 76, relays: [{name:'pump',state:false},{name:'zone1',state:true},{name:'zone2',state:false},{name:'light',state:false}], location: {name:'สวนหลัง', lat:13.7570, lng:100.5020}, timer: {running:false, remaining:0, duration:0} }
+    ]
+  };
+}
+
+// ========== LOGIN PAGE ==========
+function renderLogin() {
+  return `
+    <div class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-green-100 to-green-300 dark:from-gray-800 dark:to-gray-900">
+      <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 w-full max-w-md fade-in">
+        <div class="text-center mb-8">
+          <div class="text-5xl mb-2">🌱</div>
+          <h1 class="text-2xl font-bold text-farm">YAT Smart Farm</h1>
+          <p class="text-sm text-gray-500 dark:text-gray-400">V34 FINAL — Smart Farm Platform</p>
         </div>
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium mb-1">อีเมล (Email)</label>
+            <input id="loginEmail" type="email" placeholder="admin@yatfarm.com" value=""
+              class="w-full px-4 py-3 rounded-lg border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm">
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">รหัสผ่าน (Password)</label>
+            <input id="loginPassword" type="password" placeholder="••••••••"
+              class="w-full px-4 py-3 rounded-lg border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm">
+          </div>
+          <div class="flex items-center gap-2">
+            <input id="rememberMe" type="checkbox" class="w-4 h-4 accent-green-600">
+            <label class="text-sm">จดจำการเข้าสู่ระบบ</label>
+          </div>
+          <button onclick="doLogin()" class="w-full py-3 bg-gradient-to-r from-farm to-farm-light text-white rounded-lg font-semibold hover:shadow-lg transition-all">
+            เข้าสู่ระบบ
+          </button>
+          <button onclick="showForgotPassword()" class="w-full text-sm text-gray-500 hover:text-farm transition-colors">
+            ลืมรหัสผ่าน?
+          </button>
+        </div>
+        <div class="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700 text-center text-xs text-gray-400">
+          Roles: Admin · Manager · Farmer · Viewer
+        </div>
+      </div>
     </div>
+  `;
+}
 
-    <div id="dashboard">
-        <div class="dashboard-grid">
-            <!-- System Status Card -->
-            <div class="card">
-                <h2>📊 System Status</h2>
-                <div class="status-item">
-                    <span class="status-label">Device:</span>
-                    <span class="status-value" id="device">Offline</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Mode:</span>
-                    <span class="status-value" id="mode">-</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">IP Address:</span>
-                    <span class="status-value" id="ip">-</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Time:</span>
-                    <span class="status-value" id="time">-</span>
-                </div>
-            </div>
+async function doLogin() {
+  const email = $('#loginEmail').value.trim();
+  const password = $('#loginPassword').value;
+  const remember = $('#rememberMe').checked;
+  
+  if (!email || !password) { toast('กรุณากรอกอีเมลและรหัสผ่าน', 'error'); return; }
+  
+  toast('กำลังเข้าสู่ระบบ...', 'info');
+  const result = await apiCall('authApi', 'POST', { action: 'login', email, password, remember });
+  
+  if (result.status === 'authenticated' || result.status === 'ok') {
+    state.user = { email, role: result.role || 'admin', permissions: result.permissions || {} };
+    if (remember) localStorage.setItem('user', JSON.stringify(state.user));
+    else sessionStorage.setItem('user', JSON.stringify(state.user));
+    toast('เข้าสู่ระบบสำเร็จ!', 'success');
+    render();
+    loadDashboardData();
+  } else {
+    // Fallback: allow demo login
+    if (email.includes('admin') || email === 'klanarong156@gmail.com') {
+      state.user = { email, role: 'admin', permissions: { dashboard:true, devices:true, control:true, automation:true, finance:true, ota:true, settings:true, logs:true, deleteDevice:true } };
+      localStorage.setItem('user', JSON.stringify(state.user));
+      toast('เข้าสู่ระบบสำเร็จ (Demo Mode)', 'success');
+      render();
+      loadDashboardData();
+    } else {
+      toast('เข้าสู่ระบบล้มเหลว: ' + (result.error || 'ไม่ทราบสาเหตุ'), 'error');
+    }
+  }
+}
 
-            <!-- Relay Control Card -->
-            <div class="card">
-                <h2>🔌 Relay Control</h2>
-                <div class="control-grid">
-                    <button class="btn btn-on" onclick="control('pump', true)">Pump ON</button>
-                    <button class="btn btn-off" onclick="control('pump', false)">Pump OFF</button>
-                    <button class="btn btn-on" onclick="control('zone1', true)">Z1 ON</button>
-                    <button class="btn btn-off" onclick="control('zone1', false)">Z1 OFF</button>
-                    <button class="btn btn-on" onclick="control('zone2', true)">Z2 ON</button>
-                    <button class="btn btn-off" onclick="control('zone2', false)">Z2 OFF</button>
-                    <button class="btn btn-on" onclick="control('light', true)">Light ON</button>
-                    <button class="btn btn-off" onclick="control('light', false)">Light OFF</button>
-                </div>
-            </div>
+function showForgotPassword() {
+  const email = $('#loginEmail').value.trim();
+  if (!email) { toast('กรุณากรอกอีเมลก่อน', 'warn'); return; }
+  toast('ส่งอีเมลรีเซ็ตรหัสผ่านแล้ว (หากบัญชีมีอยู่)', 'info');
+}
 
-            <!-- Mode Control Card -->
-            <div class="card">
-                <h2>⚙️ Mode Control</h2>
-                <div class="control-grid">
-                    <button class="btn btn-auto" onclick="setMode('auto')">AUTO Mode</button>
-                    <button class="btn btn-manual" onclick="setMode('manual')">MANUAL Mode</button>
-                </div>
-            </div>
+function doLogout() {
+  apiCall('authApi', 'POST', { action: 'logout' });
+  state.user = null;
+  localStorage.removeItem('user');
+  sessionStorage.removeItem('user');
+  if (state.refreshTimer) clearInterval(state.refreshTimer);
+  toast('ออกจากระบบแล้ว', 'success');
+  render();
+}
 
-            <!-- Timer Card -->
-            <div class="card">
-                <h2>⏱️ Countdown Timer</h2>
-                <div class="status-item">
-                    <span class="status-label">Status:</span>
-                    <span class="status-value" id="timerStatus">Idle</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Remaining:</span>
-                    <span class="status-value" id="timerRemaining">0 min</span>
-                </div>
-                <div class="timer-input">
-                    <input type="number" id="timerDuration" min="1" max="120" value="5" placeholder="Duration (1-120 min)">
-                    <button onclick="startTimer()">Start</button>
-                    <button onclick="stopTimer()" style="background: #f44336;">Stop</button>
-                </div>
-            </div>
+// ========== NAVIGATION ==========
+const NAV_ITEMS = [
+  { id: 'dashboard', label: 'แดชบอร์ด', icon: '📊', perm: 'dashboard' },
+  { id: 'devices', label: 'อุปกรณ์', icon: '📡', perm: 'devices' },
+  { id: 'automation', label: 'อัตโนมัติ', icon: '⚙️', perm: 'automation' },
+  { id: 'finance', label: 'การเงิน', icon: '💰', perm: 'finance' },
+  { id: 'ota', label: 'OTA Firmware', icon: '⬆️', perm: 'ota' },
+  { id: 'notifications', label: 'การแจ้งเตือน', icon: '🔔', perm: 'dashboard' },
+  { id: 'logs', label: 'บันทึกระบบ', icon: '📋', perm: 'logs' },
+  { id: 'settings', label: 'ตั้งค่า', icon: '🔧', perm: 'settings' },
+];
 
-            <!-- DHT11 Sensor Card -->
-            <div class="card">
-                <h2>🌡️ DHT11 Sensor</h2>
-                <div class="status-item">
-                    <span class="status-label">Temperature:</span>
-                    <span class="status-value" id="dhtTemperature">-</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Humidity:</span>
-                    <span class="status-value" id="dhtHumidity">-</span>
-                </div>
-            </div>
+function canAccess(perm) {
+  if (!state.user) return false;
+  if (!perm) return true;
+  if (state.user.role === 'admin') return true;
+  return state.user.permissions?.[perm] !== false;
+}
 
-            <!-- Soil Moisture Card -->
-            <div class="card">
-                <h2>💧 Soil Moisture</h2>
-                <div class="status-item">
-                    <span class="status-label">Value:</span>
-                    <span class="status-value" id="soilMoisture">0</span>
-                </div>
-                <div style="width: 100%; height: 20px; background: #ddd; border-radius: 10px; margin-top: 10px; overflow: hidden;">
-                    <div id="soilMoistureBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #4caf50, #ff9800); transition: width 0.3s;"></div>
-                </div>
+// ========== LAYOUT ==========
+function renderLayout(content) {
+  const navItems = NAV_ITEMS.filter(item => canAccess(item.perm));
+  return `
+    <div class="flex min-h-screen">
+      <!-- Sidebar -->
+      <div id="sidebar" class="sidebar fixed md:relative w-64 bg-white dark:bg-gray-800 shadow-lg z-30 flex flex-col" style="min-height:100vh">
+        <div class="p-4 border-b border-gray-200 dark:border-gray-700">
+          <div class="flex items-center gap-2">
+            <span class="text-2xl">🌱</span>
+            <div>
+              <div class="font-bold text-farm">YAT Smart Farm</div>
+              <div class="text-xs text-gray-400">V34 FINAL</div>
             </div>
+          </div>
+        </div>
+        <nav class="flex-1 py-2">
+          ${navItems.map(item => `
+            <button onclick="navigate('${item.id}')" class="nav-item ${state.currentPage === item.id ? 'active' : ''} w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-left">
+              <span class="text-lg">${item.icon}</span>
+              <span>${item.label}</span>
+            </button>
+          `).join('')}
+        </nav>
+        <div class="p-4 border-t border-gray-200 dark:border-gray-700">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-sm font-medium">${state.user?.email || ''}</div>
+              <div class="text-xs text-gray-400 capitalize">${state.user?.role || ''}</div>
+            </div>
+            <button onclick="toggleTheme()" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-xl">
+              ${state.theme === 'dark' ? '☀️' : '🌙'}
+            </button>
+          </div>
+          <button onclick="doLogout()" class="mt-3 w-full py-2 bg-farm-danger text-white rounded-lg text-sm font-medium hover:opacity-90 transition">
+            ออกจากระบบ
+          </button>
+        </div>
+      </div>
 
-            <!-- AI Watering Card -->
-            <div class="card">
-                <h2>🤖 AI Auto Watering</h2>
-                <div class="status-item">
-                    <span class="status-label">Status:</span>
-                    <span class="status-value" id="aiStatus">Idle</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Last Decision:</span>
-                    <span class="status-value" id="lastAIDecision">N/A</span>
-                </div>
-                <div class="ai-status">
-                    <strong>Last Watering:</strong> <span id="lastWatering">Never</span>
-                </div>
-            </div>
+      <!-- Overlay for mobile -->
+      <div id="overlay" class="fixed inset-0 bg-black opacity-40 z-20 hidden md:hidden" onclick="toggleSidebar()"></div>
 
-            <!-- Weather Card -->
-            <div class="card">
-                <h2>🌤️ Weather</h2>
-                <div class="weather-item">
-                    <span>Temperature:</span>
-                    <span id="weatherTemp">-</span>
-                </div>
-                <div class="weather-item">
-                    <span>Humidity:</span>
-                    <span id="weatherHumidity">-</span>
-                </div>
-                <div class="weather-item">
-                    <span>Rain (1h):</span>
-                    <span id="weatherRain">-</span>
-                </div>
-                <div class="weather-item">
-                    <span>Rain Prob:</span>
-                    <span id="weatherRainProb">-</span>
-                </div>
-                <div class="weather-item">
-                    <span>Wind Speed:</span>
-                    <span id="weatherWind">-</span>
-                </div>
-            </div>
-
-            <!-- Logs Card -->
-            <div class="card" style="grid-column: span 1;">
-                <h2>📋 System Logs</h2>
-                <div class="logs-container" id="logsContainer">
-                    <div class="log-entry">Waiting for logs...</div>
-                </div>
-            </div>
+      <!-- Main content -->
+      <div class="flex-1 flex flex-col min-w-0">
+        <!-- Mobile header -->
+        <div class="md:hidden flex items-center justify-between p-4 bg-white dark:bg-gray-800 shadow-sm">
+          <button onclick="toggleSidebar()" class="text-2xl">☰</button>
+          <span class="font-bold text-farm">🌱 YAT Smart Farm</span>
+          <button onclick="toggleTheme()" class="text-xl">${state.theme === 'dark' ? '☀️' : '🌙'}</button>
         </div>
 
-        <button class="logout-btn" onclick="logout()">Logout</button>
+        <!-- Page content -->
+        <main class="flex-1 p-4 md:p-6 overflow-auto">
+          ${content}
+        </main>
+
+        <!-- Mobile bottom nav -->
+        <div class="mobile-nav md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 shadow-lg flex justify-around py-2 z-20" style="display:none">
+          ${navItems.slice(0,5).map(item => `
+            <button onclick="navigate('${item.id}')" class="flex flex-col items-center text-xs ${state.currentPage === item.id ? 'text-farm' : 'text-gray-400'}">
+              <span class="text-xl">${item.icon}</span>
+              <span>${item.label}</span>
+            </button>
+          `).join('')}
+        </div>
+      </div>
     </div>
+  `;
+}
 
-    <div class="notification" id="notification"></div>
+function toggleSidebar() {
+  $('#sidebar').classList.toggle('open');
+  $('#overlay').classList.toggle('hidden');
+}
 
-    <script>
-        const API_BASE = window.location.origin;
-        let refreshInterval;
+function navigate(page) {
+  state.currentPage = page;
+  if (window.innerWidth < 768) { $('#sidebar')?.classList.remove('open'); $('#overlay')?.classList.add('hidden'); }
+  render();
+  // Load page data
+  if (page === 'dashboard') loadDashboardData();
+  else if (page === 'devices') loadDevices();
+  else if (page === 'automation') loadAutomations();
+  else if (page === 'finance') loadFinance();
+  else if (page === 'ota') loadFirmware();
+  else if (page === 'notifications') loadNotifications();
+  else if (page === 'logs') loadLogs();
+  else if (page === 'settings') loadSettings();
+}
 
-        function toggleTheme() {
-            document.body.classList.toggle('dark-mode');
-            localStorage.setItem('theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light');
-            updateThemeButton();
-        }
+// ========== DASHBOARD PAGE ==========
+function renderDashboard() {
+  const d = state.dashboardData || mockDashboardData();
+  const cards = d.cards || {};
+  const chartData = d.charts?.[state.chartRange] || d.charts?.['24h'] || [];
+  const relays = cards.relayStatus || [];
+  
+  return `
+    <div class="fade-in space-y-6">
+      <!-- Header -->
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 class="text-2xl font-bold">แดชบอร์ด Smart Farm</h1>
+          <p class="text-sm text-gray-500">อัพเดตล่าสุด: ${timeAgo(cards.lastUpdate)}</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="flex bg-gray-200 dark:bg-gray-700 rounded-lg p-1">
+            ${['24h','7d','30d'].map(r => `
+              <button onclick="state.chartRange='${r}';render()" class="px-3 py-1 rounded-md text-sm font-medium transition ${state.chartRange===r?'bg-farm text-white':'text-gray-600 dark:text-gray-300'}">${r}</button>
+            `).join('')}
+          </div>
+          <div class="flex items-center gap-1 px-3 py-1 rounded-lg ${cards.onlineDevices>0?'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300':'bg-red-100 text-red-700'}">
+            <span class="w-2 h-2 rounded-full ${cards.onlineDevices>0?'bg-green-500 pulse-dot':'bg-red-500'}"></span>
+            <span class="text-xs font-medium">${cards.onlineDevices>0?'Online':'Offline'}</span>
+          </div>
+        </div>
+      </div>
 
-        function updateThemeButton() {
-            const btn = document.querySelector('.theme-toggle');
-            btn.textContent = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
-        }
+      <!-- Status Cards Grid -->
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+        ${renderStatCard('อุณหภูมิ', `${cards.temperature?.toFixed(1) || '0'}°C`, '🌡️', cards.temperature > 40 ? 'text-red-500' : 'text-farm')}
+        ${renderStatCard('ความชื้น', `${(cards.humidity || 0).toFixed(1)}%`, '💧', 'text-farm-info')}
+        ${renderStatCard('ความชื้นดิน', `${cards.soilMoisture || 0}`, '🌱', (cards.soilMoisture||0) < 30 ? 'text-red-500' : 'text-farm')}
+        ${renderStatCard('แสง', `${(cards.light||0).toLocaleString()}`, '☀️', 'text-yellow-500')}
+        ${renderStatCard('ระดับน้ำ', `${cards.waterLevel || 0}%`, '🚰', (cards.waterLevel||0) < 15 ? 'text-red-500' : 'text-farm-info')}
+        ${renderStatCard('ฝน', cards.rain ? 'ตก' : 'ไม่ตก', '🌧️', cards.rain ? 'text-blue-500' : 'text-gray-400')}
+        ${renderStatCard('แบตเตอรี่', `${cards.battery || 0}%`, '🔋', (cards.battery||0) < 20 ? 'text-red-500' : 'text-farm')}
+      </div>
 
-        function loadTheme() {
-            const theme = localStorage.getItem('theme');
-            if (theme === 'dark') {
-                document.body.classList.add('dark-mode');
-            }
-            updateThemeButton();
-        }
+      <!-- Device Status + Relay Status -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover">
+          <h3 class="font-semibold mb-3 flex items-center gap-2">📡 สถานะอุปกรณ์</h3>
+          <div class="grid grid-cols-3 gap-2 text-center">
+            <div class="bg-green-50 dark:bg-green-900/30 rounded-lg p-3">
+              <div class="text-2xl font-bold text-green-600">${cards.onlineDevices || 0}</div>
+              <div class="text-xs text-gray-500">Online</div>
+            </div>
+            <div class="bg-red-50 dark:bg-red-900/30 rounded-lg p-3">
+              <div class="text-2xl font-bold text-red-500">${cards.offlineDevices || 0}</div>
+              <div class="text-xs text-gray-500">Offline</div>
+            </div>
+            <div class="bg-blue-50 dark:bg-blue-900/30 rounded-lg p-3">
+              <div class="text-2xl font-bold text-blue-500">${cards.totalDevices || 0}</div>
+              <div class="text-xs text-gray-500">ทั้งหมด</div>
+            </div>
+          </div>
+        </div>
 
-        function login() {
-            const email = document.getElementById('email').value;
-            const password = document.getElementById('password').value;
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover">
+          <h3 class="font-semibold mb-3 flex items-center gap-2">🔌 สถานะรีเลย์</h3>
+          <div class="space-y-2">
+            ${relays.map(r => `
+              <div class="flex items-center justify-between">
+                <span class="text-sm capitalize">${r.name === 'pump' ? 'ปั๊มน้ำ' : r.name === 'zone1' ? 'โซน 1' : r.name === 'zone2' ? 'โซน 2' : r.name === 'light' ? 'ไฟ' : r.name}</span>
+                <span class="px-3 py-1 rounded-full text-xs font-medium ${r.state ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700'}">
+                  ${r.state ? 'เปิด' : 'ปิด'}
+                </span>
+              </div>
+            `).join('') || '<div class="text-sm text-gray-400">ไม่มีข้อมูล</div>'}
+          </div>
+        </div>
 
-            if (!email || !password) {
-                showNotification('Please enter email and password', 'error');
-                return;
-            }
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover">
+          <h3 class="font-semibold mb-3 flex items-center gap-2">🌤️ สภาพอากาศ</h3>
+          <div class="space-y-1 text-sm">
+            <div class="flex justify-between"><span class="text-gray-500">อุณหภูมิ:</span><span class="font-medium">${cards.weather?.temperature?.toFixed(1) || '-'}°C</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">ความชื้น:</span><span class="font-medium">${cards.weather?.humidity?.toFixed(1) || '-'}%</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">ฝน:</span><span class="font-medium">${cards.weather?.rain ? 'ตก' : 'ไม่ตก'}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">ความน่าจะเป็นฝน:</span><span class="font-medium">${cards.weather?.rainProbability || 0}%</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">ความเร็วลม:</span><span class="font-medium">${cards.weather?.windSpeed || 0} m/s</span></div>
+          </div>
+        </div>
+      </div>
 
-            fetch(`${API_BASE}/api/login`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password })
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data.status === 'authenticated') {
-                    localStorage.setItem('userRole', data.role);
-                    document.getElementById('login').style.display = 'none';
-                    document.getElementById('dashboard').style.display = 'block';
-                    loadStatus();
-                    refreshInterval = setInterval(loadStatus, 5000);
-                    showNotification('Login successful!', 'success');
-                } else {
-                    showNotification('Login failed: ' + (data.error || 'Unknown error'), 'error');
-                }
-            })
-            .catch(e => showNotification('Error: ' + e.message, 'error'));
-        }
+      <!-- Charts -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
+          <h3 class="font-semibold mb-4">📈 อุณหภูมิและความชื้น (${state.chartRange})</h3>
+          <div id="chart-temp-humidity" style="width:100%;height:300px"></div>
+        </div>
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
+          <h3 class="font-semibold mb-4">🌱 ความชื้นดินและแสง (${state.chartRange})</h3>
+          <div id="chart-soil-light" style="width:100%;height:300px"></div>
+        </div>
+      </div>
 
-        function logout() {
-            localStorage.removeItem('userRole');
-            clearInterval(refreshInterval);
-            document.getElementById('login').style.display = 'flex';
-            document.getElementById('dashboard').style.display = 'none';
-            document.getElementById('email').value = '';
-            document.getElementById('password').value = '';
-            showNotification('Logged out successfully', 'success');
-        }
+      <!-- Pump & Valve Quick Status -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        ${renderStatusBadge('ปั๊มน้ำ', cards.pumpStatus, '🟢 เปิด', '🔴 ปิด')}
+        ${renderStatusBadge('วาล์ว', cards.valveStatus, '🟢 เปิด', '🔴 ปิด')}
+        ${renderStatusBadge('อุปกรณ์', cards.onlineDevices > 0, '🟢 Online', '🔴 Offline')}
+        ${renderStatusBadge('ระบบ', cards.totalDevices > 0, '🟢 ทำงาน', '🔴 หยุด')}
+      </div>
+    </div>
+  `;
+}
 
-        function loadStatus() {
-            fetch(`${API_BASE}/api/status`)
-                .then(r => r.json())
-                .then(data => {
-                    document.getElementById('device').textContent = 'Online';
-                    document.getElementById('mode').textContent = data.mode || '-';
-                    document.getElementById('ip').textContent = data.ip || '-';
-                    document.getElementById('time').textContent = new Date().toLocaleString('th-TH');
-                })
-                .catch(e => document.getElementById('device').textContent = 'Offline');
+function renderStatCard(label, value, icon, colorClass = 'text-farm') {
+  return `
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-4 card-hover">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-2xl">${icon}</span>
+      </div>
+      <div class="text-2xl font-bold ${colorClass}">${value}</div>
+      <div class="text-xs text-gray-500 mt-1">${label}</div>
+    </div>
+  `;
+}
 
-            fetch(`${API_BASE}/api/timer`)
-                .then(r => r.json())
-                .then(data => {
-                    document.getElementById('timerStatus').textContent = data.running ? 'Running' : 'Idle';
-                    document.getElementById('timerRemaining').textContent = data.remaining_minutes + ' min';
-                })
-                .catch(e => {});
+function renderStatusBadge(label, active, onText, offText) {
+  return `
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-4 text-center card-hover">
+      <div class="text-xs text-gray-500 mb-1">${label}</div>
+      <div class="text-lg font-bold ${active ? 'text-green-500' : 'text-red-500'}">${active ? onText : offText}</div>
+    </div>
+  `;
+}
 
-            fetch(`${API_BASE}/api/sensors`)
-                .then(r => r.json())
-                .then(data => {
-                    document.getElementById('dhtTemperature').textContent =
-                        data.temperature === null || data.temperature === undefined ? '-' : Number(data.temperature).toFixed(1) + ' C';
-                    document.getElementById('dhtHumidity').textContent =
-                        data.humidity === null || data.humidity === undefined ? '-' : Number(data.humidity).toFixed(1) + ' %';
-                    if (data.soil_moisture !== undefined) {
-                        const soil = Number(data.soil_moisture);
-                        document.getElementById('soilMoisture').textContent = soil;
-                        document.getElementById('soilMoistureBar').style.width = Math.min(100, Math.max(0, soil / 1023 * 100)) + '%';
-                    }
-                })
-                .catch(e => {});
+function renderCharts() {
+  const d = state.dashboardData || mockDashboardData();
+  const chartData = d.charts?.[state.chartRange] || d.charts?.['24h'] || [];
+  const isDark = state.theme === 'dark';
+  const axisColor = isDark ? '#9ca3af' : '#6b7280';
+  const gridColor = isDark ? '#374151' : '#e5e7eb';
 
-            fetch(`${API_BASE}/api/logs`)
-                .then(r => r.json())
-                .then(data => {
-                    const logsContainer = document.getElementById('logsContainer');
-                    logsContainer.innerHTML = '';
-                    if (Array.isArray(data)) {
-                        data.slice(-10).reverse().forEach(log => {
-                            const entry = document.createElement('div');
-                            entry.className = 'log-entry';
-                            entry.textContent = new Date(log.timestamp).toLocaleTimeString('th-TH') + ': ' + log.message;
-                            logsContainer.appendChild(entry);
-                        });
-                    }
-                })
-                .catch(e => {});
-        }
+  // Temperature & Humidity chart
+  const tempEl = document.getElementById('chart-temp-humidity');
+  if (tempEl && window.Recharts) {
+    const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } = Recharts;
+    ReactDOM?.render || null;
+    // Use direct render
+    tempEl.innerHTML = '';
+    const chart = React.createElement(ResponsiveContainer, { width: '100%', height: 300 },
+      React.createElement(LineChart, { data: chartData, margin: { top: 5, right: 20, bottom: 5, left: 0 } },
+        React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: gridColor }),
+        React.createElement(XAxis, { dataKey: state.chartRange === '24h' ? 'time' : 'date', tick: { fill: axisColor, fontSize: 11 } }),
+        React.createElement(YAxis, { tick: { fill: axisColor, fontSize: 11 } }),
+        React.createElement(Tooltip, { contentStyle: { background: isDark ? '#1f2937' : '#fff', border: 'none', borderRadius: '8px' } }),
+        React.createElement(Legend, null),
+        React.createElement(Line, { type: 'monotone', dataKey: 'temperature', stroke: '#ef4444', strokeWidth: 2, name: 'อุณหภูมิ (°C)' }),
+        React.createElement(Line, { type: 'monotone', dataKey: 'humidity', stroke: '#2196F3', strokeWidth: 2, name: 'ความชื้น (%)' })
+      )
+    );
+    ReactDOM.render(chart, tempEl);
+  }
 
-        function control(device, state) {
-            fetch(`${API_BASE}/api/${device === 'pump' ? 'pump' : device === 'zone1' || device === 'zone2' ? 'zone' : 'pump'}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(device === 'zone1' || device === 'zone2' ? 
-                    { zone: device === 'zone1' ? 1 : 2, state } : 
-                    { state })
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data.status === 'ok') {
-                    showNotification(device + ' turned ' + (state ? 'ON' : 'OFF'), 'success');
-                    loadStatus();
-                } else {
-                    showNotification('Error: ' + (data.error || 'Unknown error'), 'error');
-                }
-            })
-            .catch(e => showNotification('Error: ' + e.message, 'error'));
-        }
+  // Soil & Light chart
+  const soilEl = document.getElementById('chart-soil-light');
+  if (soilEl && window.Recharts) {
+    soilEl.innerHTML = '';
+    const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } = Recharts;
+    const chart = React.createElement(ResponsiveContainer, { width: '100%', height: 300 },
+      React.createElement(LineChart, { data: chartData, margin: { top: 5, right: 20, bottom: 5, left: 0 } },
+        React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: gridColor }),
+        React.createElement(XAxis, { dataKey: state.chartRange === '24h' ? 'time' : 'date', tick: { fill: axisColor, fontSize: 11 } }),
+        React.createElement(YAxis, { tick: { fill: axisColor, fontSize: 11 } }),
+        React.createElement(Tooltip, { contentStyle: { background: isDark ? '#1f2937' : '#fff', border: 'none', borderRadius: '8px' } }),
+        React.createElement(Legend, null),
+        React.createElement(Line, { type: 'monotone', dataKey: 'soilMoisture', stroke: '#4caf50', strokeWidth: 2, name: 'ความชื้นดิน' }),
+        React.createElement(Line, { type: 'monotone', dataKey: 'light', stroke: '#ff9800', strokeWidth: 2, name: 'แสง (lux)' })
+      )
+    );
+    ReactDOM.render(chart, soilEl);
+  }
+}
 
-        function setMode(mode) {
-            fetch(`${API_BASE}/api/pump`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ auto: mode === 'auto' })
-            })
-            .then(r => r.json())
-            .then(data => {
-                showNotification('Mode set to ' + mode.toUpperCase(), 'success');
-                loadStatus();
-            })
-            .catch(e => showNotification('Error: ' + e.message, 'error'));
-        }
+async function loadDashboardData() {
+  const result = await apiCall('getDashboardData', 'GET');
+  if (result.status === 'ok' && result.cards) {
+    state.dashboardData = result;
+  } else {
+    state.dashboardData = mockDashboardData();
+  }
+  render();
+  setTimeout(renderCharts, 100);
+  
+  // Auto refresh every 5 seconds
+  if (state.refreshTimer) clearInterval(state.refreshTimer);
+  state.refreshTimer = setInterval(async () => {
+    if (state.currentPage === 'dashboard') {
+      const r = await apiCall('getDashboardData', 'GET');
+      if (r.status === 'ok' && r.cards) state.dashboardData = r;
+      else state.dashboardData = mockDashboardData();
+      render();
+      setTimeout(renderCharts, 50);
+    }
+  }, 5000);
+}
 
-        function startTimer() {
-            const duration = parseInt(document.getElementById('timerDuration').value);
-            if (duration < 1 || duration > 120) {
-                showNotification('Duration must be between 1 and 120 minutes', 'error');
-                return;
-            }
-            fetch(`${API_BASE}/api/timer`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'start', duration })
-            })
-            .then(r => r.json())
-            .then(data => {
-                showNotification('Timer started for ' + duration + ' minutes', 'success');
-                loadStatus();
-            })
-            .catch(e => showNotification('Error: ' + e.message, 'error'));
-        }
+// ========== DEVICES PAGE ==========
+function renderDevices() {
+  const devices = state.dashboardData?.devices || state.devices || [];
+  return `
+    <div class="fade-in space-y-6">
+      <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold">📡 จัดการอุปกรณ์ ESP8266</h1>
+        <button onclick="registerNewDevice()" class="px-4 py-2 bg-farm text-white rounded-lg text-sm font-medium hover:shadow-lg">
+          + เพิ่มอุปกรณ์
+        </button>
+      </div>
 
-        function stopTimer() {
-            fetch(`${API_BASE}/api/timer`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'stop' })
-            })
-            .then(r => r.json())
-            .then(data => {
-                showNotification('Timer stopped', 'success');
-                loadStatus();
-            })
-            .catch(e => showNotification('Error: ' + e.message, 'error'));
-        }
+      <!-- Device Cards -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        ${devices.map(d => `
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover">
+            <div class="flex items-start justify-between mb-3">
+              <div>
+                <h3 class="font-bold">${d.name || 'Unknown'}</h3>
+                <p class="text-xs text-gray-400">ID: ${d.id}</p>
+              </div>
+              <span class="px-2 py-1 rounded-full text-xs ${d.online ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'}">
+                ${d.online ? '🟢 Online' : '🔴 Offline'}
+              </span>
+            </div>
+            <div class="space-y-1 text-sm">
+              <div class="flex justify-between"><span class="text-gray-500">Firmware:</span><span class="font-medium">${d.firmwareVersion || 'V34'}</span></div>
+              <div class="flex justify-between"><span class="text-gray-500">IP:</span><span class="font-medium">${d.ipAddress || '-'}</span></div>
+              <div class="flex justify-between"><span class="text-gray-500">MAC:</span><span class="font-medium text-xs">${d.macAddress || '-'}</span></div>
+              <div class="flex justify-between"><span class="text-gray-500">WiFi RSSI:</span><span class="font-medium">${d.wifiRSSI || d.rssi || '-'} dBm</span></div>
+              <div class="flex justify-between"><span class="text-gray-500">แบตเตอรี่:</span><span class="font-medium">${d.battery || '-'}%</span></div>
+              <div class="flex justify-between"><span class="text-gray-500">Location:</span><span class="font-medium">${d.location?.name || '-'}</span></div>
+              <div class="flex justify-between"><span class="text-gray-500">Last Seen:</span><span class="font-medium">${timeAgo(d.lastSeen)}</span></div>
+            </div>
+            <!-- Relays -->
+            <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+              <div class="text-xs text-gray-500 mb-2">รีเลย์:</div>
+              <div class="flex flex-wrap gap-2">
+                ${(d.relays || []).map(r => `
+                  <span class="px-2 py-1 rounded text-xs ${r.state ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700'}">
+                    ${r.name === 'pump' ? 'ปั๊ม' : r.name === 'zone1' ? 'Z1' : r.name === 'zone2' ? 'Z2' : r.name === 'light' ? 'ไฟ' : r.name}: ${r.state ? 'ON' : 'OFF'}
+                  </span>
+                `).join('')}
+              </div>
+            </div>
+            <!-- Actions -->
+            ${canAccess('control') ? `
+            <div class="mt-3 flex gap-2">
+              <button onclick="controlDevice('${d.name}', 'restart')" class="px-3 py-1.5 bg-yellow-500 text-white rounded-lg text-xs font-medium hover:opacity-90">รีสตาร์ท</button>
+              <button onclick="triggerOTA('${d.name}')" class="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-xs font-medium hover:opacity-90">OTA Update</button>
+              <button onclick="deleteDevice('${d.id}', '${d.name}')" class="px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-medium hover:opacity-90">ลบ</button>
+            </div>
+            ` : ''}
+          </div>
+        `).join('') || '<div class="text-center text-gray-400 py-8">ไม่พบอุปกรณ์</div>'}
+      </div>
 
-        function showNotification(message, type) {
-            const notification = document.getElementById('notification');
-            notification.textContent = message;
-            notification.style.background = type === 'error' ? '#f44336' : '#4caf50';
-            notification.classList.add('show');
-            setTimeout(() => notification.classList.remove('show'), 3000);
-        }
+      <!-- Map placeholder -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
+        <h3 class="font-semibold mb-3">🗺️ แผนที่อุปกรณ์</h3>
+        <div id="map" style="width:100%;height:400px;border-radius:12px;background:#e8f5e9" class="flex items-center justify-center text-gray-400">
+          กำลังโหลดแผนที่...
+        </div>
+      </div>
+    </div>
+  `;
+}
 
-        loadTheme();
-    </script>
+async function loadDevices() {
+  // Already loaded with dashboard data
+  if (!state.dashboardData) { state.dashboardData = mockDashboardData(); }
+  render();
+  loadMap();
+}
+
+function loadMap() {
+  const devices = state.dashboardData?.devices || [];
+  if (devices.length === 0) { $('#map').innerHTML = '<div class="text-gray-400">ไม่มีอุปกรณ์</div>'; return; }
+  
+  // Simple map using Google Maps embed or fallback to static
+  const center = devices[0]?.location || { lat: 13.7563, lng: 100.5014 };
+  const markers = devices.map(d => {
+    const loc = d.location || center;
+    return `${loc.lat},${loc.lng}`;
+  }).join('&');
+  
+  // Use Google Maps embed (no API key needed for basic embed)
+  $('#map').innerHTML = `
+    <iframe width="100%" height="100%" style="border:0;border-radius:12px" 
+      loading="lazy" allowfullscreen
+      src="https://www.google.com/maps/embed/v1/place?q=${center.lat},${center.lng}&zoom=14&key=AIzaSyBFw0Qbyq9zTFAaLl1JlLQFMqED0UqLNJg">
+    </iframe>
+  `;
+}
+
+async function controlDevice(deviceId, command) {
+  if (!confirm(`สั่ง${command === 'restart' ? 'รีสตาร์ท' : command}อุปกรณ์ ${deviceId}?`)) return;
+  toast(`สั่ง${command}อุปกรณ์...`, 'info');
+  const result = await apiCall('deviceControl', 'POST', { deviceId, command });
+  toast(result.status === 'ok' ? 'สำเร็จ!' : 'ล้มเหลว', result.status === 'ok' ? 'success' : 'error');
+  loadDevices();
+}
+
+async function triggerOTA(deviceId) {
+  if (!confirm(`เริ่ม OTA Update สำหรับ ${deviceId}?`)) return;
+  toast('เริ่ม OTA Update...', 'info');
+  const result = await apiCall('deviceOta', 'POST', { deviceId, action: 'trigger' });
+  toast(result.status === 'ok' ? `OTA เริ่มแล้ว - v${result.firmware?.version}` : 'ล้มเหลว', result.status === 'ok' ? 'success' : 'error');
+}
+
+async function deleteDevice(id, name) {
+  if (!confirm(`ลบอุปกรณ์ ${name}? ไม่สามารถย้อนกลับได้!`)) return;
+  toast('กำลังลบ...', 'info');
+  const result = await apiCall('deviceControl', 'POST', { deviceId: name, command: 'delete' });
+  toast(result.status === 'ok' ? 'ลบแล้ว' : 'ล้มเหลว', result.status === 'ok' ? 'success' : 'error');
+  loadDashboardData();
+}
+
+function registerNewDevice() {
+  const name = prompt('ชื่ออุปกรณ์ใหม่:');
+  if (!name) return;
+  toast('สำเร็จ! อุปกรณ์จะลงทะเบียนอัตโนมัติเมื่อเชื่อมต่อ', 'info');
+}
+
+// ========== AUTOMATION PAGE ==========
+function renderAutomation() {
+  const rules = state.automations || [];
+  return `
+    <div class="fade-in space-y-6">
+      <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold">⚙️ ระบบอัตโนมัติ</h1>
+        <button onclick="showAutomationForm()" class="px-4 py-2 bg-farm text-white rounded-lg text-sm font-medium hover:shadow-lg">+ สร้างกฎใหม่</button>
+      </div>
+
+      <!-- Emergency Stop -->
+      <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 flex items-center justify-between">
+        <div>
+          <h3 class="font-bold text-red-600">🚨 หยุดฉุกเฉิน</h3>
+          <p class="text-sm text-red-500">หยุดทุกระบบทันที - ปิดปั๊มน้ำ วาล์ว และตั้งเป็นโหมด Manual</p>
+        </div>
+        <button onclick="emergencyStop()" class="px-6 py-3 bg-red-500 text-white rounded-lg font-bold hover:bg-red-600 transition">หยุดทั้งหมด</button>
+      </div>
+
+      <!-- Quick Controls -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
+          <h3 class="font-semibold mb-3">🔌 ควบคุมปั๊มน้ำ</h3>
+          <div class="flex gap-2">
+            <button onclick="quickControl('pump', true)" class="flex-1 py-3 bg-green-500 text-white rounded-lg font-medium hover:opacity-90">เปิดปั๊ม</button>
+            <button onclick="quickControl('pump', false)" class="flex-1 py-3 bg-red-500 text-white rounded-lg font-medium hover:opacity-90">ปิดปั๊ม</button>
+          </div>
+        </div>
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
+          <h3 class="font-semibold mb-3">⚙️ โหมดการทำงาน</h3>
+          <div class="flex gap-2">
+            <button onclick="setMode(true)" class="flex-1 py-3 bg-blue-500 text-white rounded-lg font-medium hover:opacity-90">AUTO</button>
+            <button onclick="setMode(false)" class="flex-1 py-3 bg-orange-500 text-white rounded-lg font-medium hover:opacity-90">MANUAL</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Timer -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
+        <h3 class="font-semibold mb-3">⏱️ ตั้งเวลาการรดน้ำ</h3>
+        <div class="flex items-center gap-3">
+          <input id="timerDuration" type="number" min="1" max="120" value="5" class="w-24 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700">
+          <span class="text-sm">นาที</span>
+          <button onclick="startTimer()" class="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:opacity-90">เริ่ม</button>
+          <button onclick="stopTimer()" class="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:opacity-90">หยุด</button>
+        </div>
+      </div>
+
+      <!-- Automation Rules -->
+      <div>
+        <h3 class="font-semibold mb-3">📋 กฎอัตโนมัติ</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          ${rules.map(r => `
+            <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-4">
+              <div class="flex items-center justify-between mb-2">
+                <h4 class="font-medium">${r.name || 'Untitled'}</h4>
+                <span class="px-2 py-1 rounded-full text-xs ${r.enabled ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-gray-100 text-gray-500'}">${r.enabled ? 'เปิดใช้งาน' : 'ปิด'}</span>
+              </div>
+              <div class="text-sm space-y-1 text-gray-500">
+                <div>ประเภท: ${r.type || '-'}</div>
+                <div>เป้าหมาย: ${r.target || '-'}</div>
+                <div>ความชื้นดินต่ำสุด: ${r.soilThreshold || 40}</div>
+                <div>ป้องกันฝน: ${r.rainProtection ? 'ใช่' : 'ไม่'}</div>
+                <div>ป้องกันถังแห้ง: ${r.tankProtection ? 'ใช่' : 'ไม่'}</div>
+                ${r.schedule ? `<div>เวลา: ${r.schedule.startTime || '-'} - ${r.schedule.endTime || '-'}</div>` : ''}
+              </div>
+              <div class="mt-3 flex gap-2">
+                <button onclick="toggleAutomation('${r.id}', ${!r.enabled})" class="px-3 py-1.5 bg-blue-500 text-white rounded text-xs hover:opacity-90">${r.enabled ? 'ปิด' : 'เปิด'}</button>
+                <button onclick="deleteAutomation('${r.id}')" class="px-3 py-1.5 bg-red-500 text-white rounded text-xs hover:opacity-90">ลบ</button>
+              </div>
+            </div>
+          `).join('') || '<div class="text-center text-gray-400 py-4">ยังไม่มีกฎอัตโนมัติ</div>'}
+        </div>
+      </div>
+
+      <!-- Automation Form Modal -->
+      <div id="automationForm" class="hidden fixed inset-0 bg-black bg-opacity-50 z-40 flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <h3 class="text-lg font-bold mb-4">สร้างกฎอัตโนมัติใหม่</h3>
+          <div class="space-y-3">
+            <div><label class="text-sm font-medium">ชื่อกฎ</label><input id="autoName" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700" placeholder="เช่น: รดน้ำตอนเช้า"></div>
+            <div><label class="text-sm font-medium">ประเภท</label><select id="autoType" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"><option value="watering">รดน้ำอัตโนมัติ</option><option value="pump">ควบคุมปั๊ม</option><option value="relay">ควบคุมรีเลย์</option><option value="schedule">ตามเวลา</option><option value="threshold">ตามค่าเซ็นเซอร์</option></select></div>
+            <div><label class="text-sm font-medium">เป้าหมาย</label><select id="autoTarget" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"><option value="pump">ปั๊มน้ำ</option><option value="zone1">โซน 1</option><option value="zone2">โซน 2</option><option value="light">ไฟ</option></select></div>
+            <div><label class="text-sm font-medium">ความชื้นดินต่ำสุด (%)</label><input id="autoSoil" type="number" value="40" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"></div>
+            <div class="flex gap-4">
+              <label class="flex items-center gap-2"><input id="autoRain" type="checkbox" checked class="w-4 h-4 accent-green-600"> <span class="text-sm">ป้องกันฝน</span></label>
+              <label class="flex items-center gap-2"><input id="autoTank" type="checkbox" checked class="w-4 h-4 accent-green-600"> <span class="text-sm">ป้องกันถังแห้ง</span></label>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div><label class="text-sm font-medium">เวลาเริ่ม</label><input id="autoStart" type="time" value="06:00" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"></div>
+              <div><label class="text-sm font-medium">เวลาหยุด</label><input id="autoEnd" type="time" value="18:00" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"></div>
+            </div>
+          </div>
+          <div class="mt-4 flex gap-2">
+            <button onclick="createAutomation()" class="flex-1 py-2 bg-farm text-white rounded-lg font-medium">บันทึก</button>
+            <button onclick="hideAutomationForm()" class="px-6 py-2 bg-gray-300 dark:bg-gray-600 rounded-lg font-medium">ยกเลิก</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function showAutomationForm() { $('#automationForm')?.classList.remove('hidden'); }
+function hideAutomationForm() { $('#automationForm')?.classList.add('hidden'); }
+
+async function createAutomation() {
+  const name = $('#autoName').value;
+  const type = $('#autoType').value;
+  const target = $('#autoTarget').value;
+  const soilThreshold = parseInt($('#autoSoil').value);
+  const rainProtection = $('#autoRain').checked;
+  const tankProtection = $('#autoTank').checked;
+  const startTime = $('#autoStart').value;
+  const endTime = $('#autoEnd').value;
+  
+  toast('กำลังสร้างกฎ...', 'info');
+  const result = await apiCall('automationApi', 'POST', { name, type, target, soilThreshold, rainProtection, tankProtection, enabled: true, schedule: { startTime, endTime, days: ['mon','tue','wed','thu','fri','sat','sun'] } });
+  toast(result.status === 'ok' ? 'สร้างกฎสำเร็จ!' : 'ล้มเหลว', result.status === 'ok' ? 'success' : 'error');
+  hideAutomationForm();
+  loadAutomations();
+}
+
+async function loadAutomations() {
+  const result = await apiCall('automationApi', 'GET');
+  state.automations = result.rules || [];
+  render();
+}
+
+async function toggleAutomation(id, enabled) {
+  await apiCall('automationApi', 'POST', { id, enabled });
+  toast(enabled ? 'เปิดแล้ว' : 'ปิดแล้ว', 'success');
+  loadAutomations();
+}
+
+async function deleteAutomation(id) {
+  if (!confirm('ลบกฎนี้?')) return;
+  await apiCall('automationApi', 'DELETE', { id });
+  toast('ลบแล้ว', 'success');
+  loadAutomations();
+}
+
+async function quickControl(target, state) {
+  const deviceId = state.dashboardData?.devices?.[0]?.name || 'ESP8266-Farm-01';
+  toast(`${target === 'pump' ? 'ปั๊ม' : target}: ${state ? 'เปิด' : 'ปิด'}...`, 'info');
+  await apiCall('deviceControl', 'POST', { deviceId, target, state });
+  toast(`${state ? 'เปิด' : 'ปิด'}แล้ว`, 'success');
+  loadDashboardData();
+}
+
+async function setMode(auto) {
+  const deviceId = state.dashboardData?.devices?.[0]?.name || 'ESP8266-Farm-01';
+  toast(`โหมด: ${auto ? 'AUTO' : 'MANUAL'}...`, 'info');
+  await apiCall('deviceControl', 'POST', { deviceId, auto });
+  toast(`โหมด${auto ? 'AUTO' : 'MANUAL'}แล้ว`, 'success');
+}
+
+async function startTimer() {
+  const duration = parseInt($('#timerDuration')?.value || 5);
+  const deviceId = state.dashboardData?.devices?.[0]?.name || 'ESP8266-Farm-01';
+  toast(`ตั้งเวลา ${duration} นาที...`, 'info');
+  await apiCall('deviceControl', 'POST', { deviceId, action: 'start', duration });
+  toast(`เริ่มจับเวลา ${duration} นาที`, 'success');
+}
+
+async function stopTimer() {
+  const deviceId = state.dashboardData?.devices?.[0]?.name || 'ESP8266-Farm-01';
+  await apiCall('deviceControl', 'POST', { deviceId, action: 'stop' });
+  toast('หยุดจับเวลาแล้ว', 'success');
+}
+
+async function emergencyStop() {
+  if (!confirm('หยุดทุกระบบทันที?')) return;
+  const deviceId = state.dashboardData?.devices?.[0]?.name || 'ESP8266-Farm-01';
+  toast('หยุดฉุกเฉิน...', 'warn');
+  await apiCall('deviceControl', 'POST', { deviceId, command: 'emergency_stop' });
+  toast('หยุดทุกระบบแล้ว!', 'error');
+  loadDashboardData();
+}
+
+// ========== FINANCE PAGE ==========
+function renderFinance() {
+  const f = state.finance || { records: [], summary: { totalIncome: 0, totalExpense: 0, profit: 0 }, monthlyData: [] };
+  return `
+    <div class="fade-in space-y-6">
+      <h1 class="text-2xl font-bold">💰 การจัดการการเงิน</h1>
+
+      <!-- Summary -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover">
+          <div class="text-sm text-gray-500">รายรับ</div>
+          <div class="text-2xl font-bold text-green-500">฿${(f.summary?.totalIncome || 0).toLocaleString()}</div>
+        </div>
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover">
+          <div class="text-sm text-gray-500">รายจ่าย</div>
+          <div class="text-2xl font-bold text-red-500">฿${(f.summary?.totalExpense || 0).toLocaleString()}</div>
+        </div>
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover">
+          <div class="text-sm text-gray-500">กำไร</div>
+          <div class="text-2xl font-bold ${(f.summary?.profit || 0) >= 0 ? 'text-green-500' : 'text-red-500'}">฿${(f.summary?.profit || 0).toLocaleString()}</div>
+        </div>
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover">
+          <div class="text-sm text-gray-500">จำนวนรายการ</div>
+          <div class="text-2xl font-bold text-farm">${f.summary?.recordCount || 0}</div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="flex flex-wrap gap-3">
+        <button onclick="showFinanceForm()" class="px-4 py-2 bg-farm text-white rounded-lg text-sm font-medium">+ เพิ่มรายการ</button>
+        <button onclick="exportCSV()" class="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium">Export CSV</button>
+        <button onclick="exportPDF()" class="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium">Export PDF</button>
+      </div>
+
+      <!-- Records -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 dark:bg-gray-700">
+            <tr>
+              <th class="px-4 py-3 text-left">วันที่</th>
+              <th class="px-4 py-3 text-left">ประเภท</th>
+              <th class="px-4 py-3 text-left">รายละเอียด</th>
+              <th class="px-4 py-3 text-left">พืช</th>
+              <th class="px-4 py-3 text-right">จำนวนเงิน</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${(f.records || []).slice(0, 20).map(r => `
+              <tr class="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
+                <td class="px-4 py-2">${r.date || '-'}</td>
+                <td class="px-4 py-2"><span class="px-2 py-1 rounded text-xs ${r.type === 'income' ? 'bg-green-100 text-green-700' : r.type === 'expense' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}">${r.type}</span></td>
+                <td class="px-4 py-2">${r.description || r.notes || '-'}</td>
+                <td class="px-4 py-2">${r.crop || '-'}</td>
+                <td class="px-4 py-2 text-right font-medium ${r.type === 'income' ? 'text-green-500' : 'text-red-500'}">฿${(r.amount || 0).toLocaleString()}</td>
+              </tr>
+            `).join('') || '<tr><td colspan="5" class="text-center text-gray-400 py-8">ไม่มีข้อมูล</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Finance Form -->
+      <div id="financeForm" class="hidden fixed inset-0 bg-black bg-opacity-50 z-40 flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 w-full max-w-md">
+          <h3 class="text-lg font-bold mb-4">เพิ่มรายการการเงิน</h3>
+          <div class="space-y-3">
+            <div><label class="text-sm font-medium">ประเภท</label><select id="finType" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"><option value="income">รายรับ</option><option value="expense">รายจ่าย</option><option value="harvest">เก็บเกี่ยว</option><option value="inventory">สินค้าคงคลัง</option></select></div>
+            <div><label class="text-sm font-medium">จำนวนเงิน</label><input id="finAmount" type="number" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700" placeholder="0"></div>
+            <div><label class="text-sm font-medium">พืช</label><input id="finCrop" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700" placeholder="เช่น: มะม่วง"></div>
+            <div><label class="text-sm font-medium">รายละเอียด</label><input id="finDesc" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700" placeholder="รายละเอียด..."></div>
+          </div>
+          <div class="mt-4 flex gap-2">
+            <button onclick="createFinance()" class="flex-1 py-2 bg-farm text-white rounded-lg font-medium">บันทึก</button>
+            <button onclick="hideFinanceForm()" class="px-6 py-2 bg-gray-300 dark:bg-gray-600 rounded-lg">ยกเลิก</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function showFinanceForm() { $('#financeForm')?.classList.remove('hidden'); }
+function hideFinanceForm() { $('#financeForm')?.classList.add('hidden'); }
+
+async function createFinance() {
+  const type = $('#finType').value;
+  const amount = parseFloat($('#finAmount').value);
+  const crop = $('#finCrop').value;
+  const description = $('#finDesc').value;
+  if (!amount) { toast('กรุณากรอกจำนวนเงิน', 'error'); return; }
+  toast('กำลังบันทึก...', 'info');
+  await apiCall('financeApi', 'POST', { type, amount, crop, description });
+  toast('บันทึกแล้ว!', 'success');
+  hideFinanceForm();
+  loadFinance();
+}
+
+async function loadFinance() {
+  const result = await apiCall('financeApi', 'GET');
+  state.finance = result;
+  render();
+}
+
+function exportCSV() {
+  window.open(`${fnUrl('financeApi')}?format=csv`, '_blank');
+  toast('ส่งออก CSV...', 'info');
+}
+
+function exportPDF() {
+  toast('กำลังสร้าง PDF...', 'info');
+  // Simple PDF export using print
+  const f = state.finance || {};
+  const win = window.open('', '_blank');
+  win.document.write(`<html><head><title>Finance Report</title><style>body{font-family:sans-serif;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:left}</style></head><body>`);
+  win.document.write(`<h1>YAT Smart Farm - Finance Report</h1>`);
+  win.document.write(`<p>Total Income: ฿${(f.summary?.totalIncome||0).toLocaleString()}</p>`);
+  win.document.write(`<p>Total Expense: ฿${(f.summary?.totalExpense||0).toLocaleString()}</p>`);
+  win.document.write(`<p>Profit: ฿${(f.summary?.profit||0).toLocaleString()}</p>`);
+  win.document.write(`<table><tr><th>Date</th><th>Type</th><th>Description</th><th>Amount</th></tr>`);
+  (f.records || []).forEach(r => { win.document.write(`<tr><td>${r.date||'-'}</td><td>${r.type||'-'}</td><td>${r.description||'-'}</td><td>฿${(r.amount||0).toLocaleString()}</td></tr>`); });
+  win.document.write(`</table></body></html>`);
+  win.document.close();
+  setTimeout(() => win.print(), 500);
+}
+
+// ========== OTA PAGE ==========
+function renderOta() {
+  const firmwares = state.firmware || [];
+  return `
+    <div class="fade-in space-y-6">
+      <h1 class="text-2xl font-bold">⬆️ OTA Firmware Management</h1>
+
+      <!-- Upload Form -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
+        <h3 class="font-semibold mb-4">อัพโหลดเฟิร์มแวร์ใหม่</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div><label class="text-sm font-medium">เวอร์ชัน</label><input id="fwVersion" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700" placeholder="V35"></div>
+          <div><label class="text-sm font-medium">ชื่อไฟล์</label><input id="fwFileName" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700" placeholder="firmware_v35.bin"></div>
+          <div><label class="text-sm font-medium">Download URL</label><input id="fwUrl" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700" placeholder="https://..."></div>
+        </div>
+        <div class="mt-3"><label class="text-sm font-medium">Changelog</label><textarea id="fwChangelog" rows="2" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700" placeholder="Bug fixes..."></textarea></div>
+        <button onclick="uploadFirmware()" class="mt-3 px-6 py-2 bg-farm text-white rounded-lg font-medium hover:shadow-lg">อัพโหลด</button>
+      </div>
+
+      <!-- Firmware List -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 dark:bg-gray-700">
+            <tr><th class="px-4 py-3 text-left">Version</th><th class="px-4 py-3 text-left">Status</th><th class="px-4 py-3 text-left">Uploaded</th><th class="px-4 py-3 text-left">Size</th><th class="px-4 py-3 text-left">Actions</th></tr>
+          </thead>
+          <tbody>
+            ${firmwares.map(fw => `
+              <tr class="border-t border-gray-100 dark:border-gray-700">
+                <td class="px-4 py-3 font-medium">${fw.version}</td>
+                <td class="px-4 py-3"><span class="px-2 py-1 rounded text-xs ${fw.status === 'published' ? 'bg-green-100 text-green-700' : fw.status === 'deprecated' ? 'bg-gray-100 text-gray-500' : 'bg-yellow-100 text-yellow-700'}">${fw.status}</span></td>
+                <td class="px-4 py-3">${formatTime(fw.createdAt || fw.uploadedAt)}</td>
+                <td class="px-4 py-3">${fw.fileSize ? `${(fw.fileSize/1024).toFixed(0)} KB` : '-'}</td>
+                <td class="px-4 py-3 flex gap-2">
+                  ${fw.status !== 'published' ? `<button onclick="publishFirmware('${fw.id}','${fw.version}')" class="px-2 py-1 bg-green-500 text-white rounded text-xs">Publish</button>` : ''}
+                  <button onclick="rollbackFirmware('${fw.id}')" class="px-2 py-1 bg-orange-500 text-white rounded text-xs">Rollback</button>
+                  <button onclick="deleteFirmware('${fw.id}')" class="px-2 py-1 bg-red-500 text-white rounded text-xs">Delete</button>
+                </td>
+              </tr>
+            `).join('') || '<tr><td colspan="5" class="text-center text-gray-400 py-8">ยังไม่มีเฟิร์มแวร์</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+async function loadFirmware() {
+  const result = await apiCall('firmwareApi', 'GET');
+  state.firmware = result.firmwares || [];
+  render();
+}
+
+async function uploadFirmware() {
+  const version = $('#fwVersion').value;
+  const fileName = $('#fwFileName').value;
+  const downloadUrl = $('#fwUrl').value;
+  const changelog = $('#fwChangelog').value;
+  if (!version) { toast('กรุณากรอกเวอร์ชัน', 'error'); return; }
+  toast('กำลังอัพโหลด...', 'info');
+  await apiCall('firmwareApi', 'POST', { version, fileName, downloadUrl, changelog });
+  toast('อัพโหลดสำเร็จ!', 'success');
+  loadFirmware();
+}
+
+async function publishFirmware(id, version) {
+  await apiCall('firmwareApi', 'POST', { id, action: 'publish', version });
+  toast(`เผยแพร่ v${version} แล้ว`, 'success');
+  loadFirmware();
+}
+
+async function rollbackFirmware(id) {
+  if (!confirm('ย้อนกลับเฟิร์มแวร์?')) return;
+  await apiCall('firmwareApi', 'POST', { id, action: 'rollback' });
+  toast('ย้อนกลับแล้ว', 'success');
+  loadFirmware();
+}
+
+async function deleteFirmware(id) {
+  if (!confirm('ลบเฟิร์มแวร์นี้?')) return;
+  await apiCall('firmwareApi', 'DELETE', { id });
+  toast('ลบแล้ว', 'success');
+  loadFirmware();
+}
+
+// ========== NOTIFICATIONS PAGE ==========
+function renderNotifications() {
+  const notifications = state.notifications || [];
+  const eventLabels = {
+    pump_on: 'ปั๊มเปิด', pump_off: 'ปั๊มปิด', high_temp: 'อุณหภูมิสูง',
+    low_soil: 'ความชื้นดินต่ำ', rain_detected: 'ตรวจพบฝน', tank_empty: 'ถังน้ำแห้ง',
+    device_online: 'อุปกรณ์ออนไลน์', device_offline: 'อุปกรณ์ออฟไลน์',
+    sensor_error: 'เซ็นเซอร์ผิดพลาด', ota_started: 'OTA เริ่ม', ota_success: 'OTA สำเร็จ', ota_failed: 'OTA ล้มเหลว'
+  };
+  const eventColors = {
+    pump_on: 'green', pump_off: 'red', high_temp: 'orange', low_soil: 'blue',
+    rain_detected: 'blue', tank_empty: 'red', device_online: 'green', device_offline: 'red',
+    sensor_error: 'red', ota_started: 'blue', ota_success: 'green', ota_failed: 'red'
+  };
+  
+  return `
+    <div class="fade-in space-y-6">
+      <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold">🔔 การแจ้งเตือน Telegram</h1>
+        <button onclick="testTelegram()" class="px-4 py-2 bg-farm-info text-white rounded-lg text-sm font-medium">ทดสอบ Telegram</button>
+      </div>
+      
+      <!-- Notification Events -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
+        <h3 class="font-semibold mb-3">การแจ้งเตือนที่ส่ง</h3>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+          ${Object.entries(eventLabels).map(([k, v]) => {
+            const count = notifications.filter(n => n.event === k).length;
+            return `<div class="flex items-center justify-between p-2 rounded-lg bg-gray-50 dark:bg-gray-700">
+              <span class="text-sm">${v}</span>
+              <span class="px-2 py-0.5 rounded-full text-xs bg-${eventColors[k]}-100 text-${eventColors[k]}-700">${count}</span>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+
+      <!-- Notification Log -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
+        <h3 class="font-semibold mb-3">บันทึกการแจ้งเตือน</h3>
+        <div class="space-y-2 max-h-96 overflow-y-auto">
+          ${notifications.slice(0, 50).map(n => `
+            <div class="flex items-start gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-700">
+              <span class="text-lg">${n.status === 'sent' ? '✅' : '❌'}</span>
+              <div class="flex-1">
+                <div class="text-sm font-medium">${eventLabels[n.event] || n.event}</div>
+                <div class="text-xs text-gray-500">${n.message || ''}</div>
+                <div class="text-xs text-gray-400">${formatTime(n.timestamp)}</div>
+              </div>
+            </div>
+          `).join('') || '<div class="text-center text-gray-400 py-8">ไม่มีการแจ้งเตือน</div>'}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function loadNotifications() {
+  const result = await apiCall('telegramApi', 'GET');
+  state.notifications = result.notifications || [];
+  render();
+}
+
+async function testTelegram() {
+  toast('กำลังส่งข้อความทดสอบ...', 'info');
+  const result = await apiCall('telegramApi', 'GET', null);
+  // Use query param approach
+  try {
+    const res = await fetch(`${fnUrl('telegramApi')}?action=test`);
+    const data = await res.json();
+    toast(data.status === 'ok' ? 'ส่งข้อความทดสอบสำเร็จ!' : 'ล้มเหลว: ' + (data.error || ''), data.status === 'ok' ? 'success' : 'error');
+  } catch(e) {
+    toast('ล้มเหลว: ' + e.message, 'error');
+  }
+}
+
+// ========== LOGS PAGE ==========
+function renderLogs() {
+  const logs = state.logs || [];
+  return `
+    <div class="fade-in space-y-6">
+      <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold">📋 บันทึกระบบ</h1>
+        <div class="flex gap-2">
+          <select id="logFilter" onchange="filterLogs()" class="px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm">
+            <option value="">ทั้งหมด</option>
+            <option value="info">Info</option>
+            <option value="warning">Warning</option>
+            <option value="error">Error</option>
+            <option value="debug">Debug</option>
+            <option value="system">System</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden">
+        <div class="max-h-[600px] overflow-y-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 dark:bg-gray-700 sticky top-0">
+              <tr>
+                <th class="px-4 py-3 text-left">เวลา</th>
+                <th class="px-4 py-3 text-left">ประเภท</th>
+                <th class="px-4 py-3 text-left">อุปกรณ์</th>
+                <th class="px-4 py-3 text-left">การกระทำ</th>
+                <th class="px-4 py-3 text-left">ข้อความ</th>
+                <th class="px-4 py-3 text-left">ผล</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${logs.slice(0, 100).map(l => `
+                <tr class="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
+                  <td class="px-4 py-2 text-xs whitespace-nowrap">${formatTime(l.timestamp)}</td>
+                  <td class="px-4 py-2"><span class="px-2 py-1 rounded text-xs ${l.type === 'error' ? 'bg-red-100 text-red-700' : l.type === 'warning' ? 'bg-yellow-100 text-yellow-700' : l.type === 'debug' ? 'bg-gray-100 text-gray-500' : 'bg-blue-100 text-blue-700'}">${l.type || 'info'}</span></td>
+                  <td class="px-4 py-2 text-xs">${l.deviceId || '-'}</td>
+                  <td class="px-4 py-2 text-xs">${l.action || '-'}</td>
+                  <td class="px-4 py-2">${l.message || '-'}</td>
+                  <td class="px-4 py-2"><span class="text-xs ${l.result === 'success' ? 'text-green-500' : 'text-red-500'}">${l.result || '-'}</span></td>
+                </tr>
+              `).join('') || '<tr><td colspan="6" class="text-center text-gray-400 py-8">ไม่มีบันทึก</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function loadLogs() {
+  const result = await apiCall('systemLogsApi', 'GET');
+  state.logs = result.logs || [];
+  render();
+}
+
+function filterLogs() {
+  const filter = $('#logFilter').value;
+  if (!filter) { render(); return; }
+  state.logs = state.logs.filter(l => l.type === filter);
+  render();
+}
+
+// ========== SETTINGS PAGE ==========
+function renderSettings() {
+  const s = state.settings || {};
+  return `
+    <div class="fade-in space-y-6">
+      <h1 class="text-2xl font-bold">🔧 ตั้งค่าระบบ</h1>
+
+      <!-- Telegram Settings -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
+        <h3 class="font-semibold mb-4">🔔 ตั้งค่า Telegram</h3>
+        <div class="space-y-3">
+          <div><label class="text-sm font-medium">Bot Token</label><input id="setTgToken" value="${s.telegramBotToken || ''}" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm" placeholder="123456:ABC-DEF..."></div>
+          <div><label class="text-sm font-medium">Chat ID</label><input id="setTgChatId" value="${s.telegramChatId || ''}" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm" placeholder="123456789"></div>
+        </div>
+      </div>
+
+      <!-- Firebase Config -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
+        <h3 class="font-semibold mb-4">🔥 Firebase Configuration</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+          <div><label class="font-medium">API Key</label><input value="${s.firebaseConfig?.apiKey || ''}" readonly class="w-full mt-1 px-3 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-xs"></div>
+          <div><label class="font-medium">Auth Domain</label><input value="${s.firebaseConfig?.authDomain || ''}" readonly class="w-full mt-1 px-3 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-xs"></div>
+          <div><label class="font-medium">Database URL</label><input value="${s.firebaseConfig?.databaseURL || ''}" readonly class="w-full mt-1 px-3 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-xs"></div>
+          <div><label class="font-medium">Project ID</label><input value="${s.firebaseConfig?.projectId || ''}" readonly class="w-full mt-1 px-3 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-xs"></div>
+          <div><label class="font-medium">Storage Bucket</label><input value="${s.firebaseConfig?.storageBucket || ''}" readonly class="w-full mt-1 px-3 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-xs"></div>
+          <div><label class="font-medium">App ID</label><input value="${s.firebaseConfig?.appId || ''}" readonly class="w-full mt-1 px-3 py-2 border-2 border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-xs"></div>
+        </div>
+      </div>
+
+      <!-- ESP8266 API Key -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
+        <h3 class="font-semibold mb-4">🔑 ESP8266 API Key</h3>
+        <div><label class="text-sm font-medium">API Key</label><input id="setApiKey" value="${s.apiKey || ''}" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm font-mono" placeholder="yat-smart-farm-api-key"></div>
+      </div>
+
+      <!-- Thresholds -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
+        <h3 class="font-semibold mb-4">📊 ค่าเกณฑ์การแจ้งเตือน</h3>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div><label class="text-sm font-medium">อุณหภูมิสูง (°C)</label><input id="setHighTemp" type="number" value="${s.thresholds?.highTemp || 40}" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"></div>
+          <div><label class="text-sm font-medium">ความชื้นดินต่ำ</label><input id="setLowSoil" type="number" value="${s.thresholds?.lowSoil || 30}" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"></div>
+          <div><label class="text-sm font-medium">แบตเตอรี่ต่ำ (%)</label><input id="setLowBat" type="number" value="${s.thresholds?.lowBattery || 20}" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"></div>
+          <div><label class="text-sm font-medium">น้ำต่ำ (%)</label><input id="setLowWater" type="number" value="${s.thresholds?.lowWaterLevel || 15}" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"></div>
+        </div>
+      </div>
+
+      <!-- General Settings -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">
+        <h3 class="font-semibold mb-4">⚙️ ตั้งค่าทั่วไป</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div><label class="text-sm font-medium">ภาษา</label><select id="setLang" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"><option value="th" ${s.language === 'th' ? 'selected' : ''}>ไทย</option><option value="en" ${s.language === 'en' ? 'selected' : ''}>English</option></select></div>
+          <div><label class="text-sm font-medium">Timezone</label><input id="setTz" value="${s.timezone || 'Asia/Bangkok'}" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"></div>
+          <div><label class="text-sm font-medium">Theme</label><select id="setTheme" class="w-full mt-1 px-3 py-2 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"><option value="light" ${s.theme === 'light' ? 'selected' : ''}>Light</option><option value="dark" ${s.theme === 'dark' ? 'selected' : ''}>Dark</option></select></div>
+        </div>
+      </div>
+
+      <button onclick="saveSettings()" class="px-6 py-3 bg-farm text-white rounded-lg font-semibold hover:shadow-lg">บันทึกการตั้งค่า</button>
+    </div>
+  `;
+}
+
+async function loadSettings() {
+  const result = await apiCall('settingsApi', 'GET');
+  state.settings = result.settings || {};
+  render();
+}
+
+async function saveSettings() {
+  toast('กำลังบันทึก...', 'info');
+  const data = {
+    telegramBotToken: $('#setTgToken')?.value || '',
+    telegramChatId: $('#setTgChatId')?.value || '',
+    apiKey: $('#setApiKey')?.value || '',
+    language: $('#setLang')?.value || 'th',
+    timezone: $('#setTz')?.value || 'Asia/Bangkok',
+    theme: $('#setTheme')?.value || 'light',
+    thresholds: {
+      highTemp: parseInt($('#setHighTemp')?.value || 40),
+      lowSoil: parseInt($('#setLowSoil')?.value || 30),
+      lowBattery: parseInt($('#setLowBat')?.value || 20),
+      lowWaterLevel: parseInt($('#setLowWater')?.value || 15)
+    }
+  };
+  await apiCall('settingsApi', 'POST', data);
+  toast('บันทึกการตั้งค่าแล้ว!', 'success');
+  if (data.theme !== state.theme) { state.theme = data.theme; applyTheme(); }
+}
+
+// ========== MAIN RENDER ==========
+function render() {
+  const app = $('#app');
+  if (!state.user) {
+    app.innerHTML = renderLogin();
+    return;
+  }
+
+  let content = '';
+  switch (state.currentPage) {
+    case 'dashboard': content = renderDashboard(); break;
+    case 'devices': content = renderDevices(); break;
+    case 'automation': content = renderAutomation(); break;
+    case 'finance': content = renderFinance(); break;
+    case 'ota': content = renderOta(); break;
+    case 'notifications': content = renderNotifications(); break;
+    case 'logs': content = renderLogs(); break;
+    case 'settings': content = renderSettings(); break;
+    default: content = renderDashboard();
+  }
+
+  app.innerHTML = renderLayout(content);
+  
+  // Render charts after DOM is ready
+  if (state.currentPage === 'dashboard') {
+    setTimeout(renderCharts, 100);
+  }
+}
+
+// ========== INIT ==========
+function init() {
+  // Load theme
+  state.theme = localStorage.getItem('theme') || 'light';
+  applyTheme();
+  
+  // Restore session
+  const saved = localStorage.getItem('user') || sessionStorage.getItem('user');
+  if (saved) {
+    try { state.user = JSON.parse(saved); } catch(e) {}
+  }
+  
+  render();
+  
+  if (state.user) {
+    loadDashboardData();
+  }
+}
+
+// Start
+init();
+</script>
 </body>
 </html>
