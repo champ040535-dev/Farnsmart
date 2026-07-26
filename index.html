@@ -47,6 +47,20 @@
     </style>
 </head>
 <body class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 transition-colors min-h-screen">
+        <div id="loading-screen" style="position:fixed;inset:0;background:#1b5e20;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;transition:opacity 0.5s;">
+      <div style="font-size:3rem;margin-bottom:1rem;">🌴</div>
+      <h1 style="color:white;font-size:1.5rem;font-weight:bold;margin-bottom:1rem;">YAT Smart Farm</h1>
+      <div style="border:3px solid rgba(255,255,255,0.3);border-top:3px solid white;border-radius:50%;width:40px;height:40px;animation:spin 0.8s linear infinite;"></div>
+      <p style="color:rgba(255,255,255,0.7);margin-top:1rem;font-size:0.875rem;">กำลังโหลด...</p>
+    </div>
+    <noscript>
+      <div style="position:fixed;inset:0;background:#1b5e20;color:white;display:flex;align-items:center;justify-content:center;text-align:center;padding:2rem;">
+        <div>
+          <h1 style="font-size:1.5rem;margin-bottom:1rem;">ต้องเปิด JavaScript</h1>
+          <p>กรุณาเปิด JavaScript เพื่อใช้งาน YAT Smart Farm Dashboard</p>
+        </div>
+      </div>
+    </noscript>
     <div id="app"></div>
     <div id="toast" class="fixed top-4 right-4 z-50 hidden"></div>
 
@@ -59,6 +73,42 @@ const TIMER_POLL_INTERVAL = 2000;
 const WEATHER_POLL_INTERVAL = 60000;
 const MAX_RETRIES = 3;
 const RECONNECT_DELAY = 5000;
+//==== DEMO MODE (GitHub Pages / offline preview) ====
+const IS_DEMO = !window.location.origin.includes('192.168.') && 
+                !window.location.origin.includes('localhost') &&
+                !window.location.origin.includes('127.0.0.1') &&
+                !window.location.origin.includes('10.0.') &&
+                !window.location.origin.includes('192.168.4.') &&
+                (window.location.hostname.includes('github.io') || 
+                 window.location.hostname.includes('base44.app'));
+
+const MOCK_DATA = {
+  pump: false, zone1: false, zone2: false, light: false,
+  temperature: 28.5, humidity: 65, soil: 45, soilRaw: 512,
+  soilDry: false, soilWet: false,
+  mode: 'auto', time: new Date().toLocaleString('th-TH'),
+  device: 'YAT-FARM-001', firmware: 'V3.4',
+  wifi: true, mqtt: true, rtc: true,
+  freeHeap: 35000, uptime: 86400,
+  wateringPhase: 0, wateringZone: 0, aiStatus: 'Monitoring'
+};
+const MOCK_WEATHER = {
+  temperature: 30.2, humidity: 68, pressure: 1013,
+  windSpeed: 3.5, rain1h: 0, rainProbability: 15,
+  description: 'Partly Cloudy', lastUpdated: new Date().toISOString(),
+  dhtTemp: 28.5, dhtHumidity: 65
+};
+const MOCK_LOGS = [
+  { timestamp: new Date(Date.now()-60000).toISOString(), message: 'System started' },
+  { timestamp: new Date(Date.now()-120000).toISOString(), message: 'WiFi connected' },
+  { timestamp: new Date(Date.now()-180000).toISOString(), message: 'MQTT connected' },
+  { timestamp: new Date(Date.now()-240000).toISOString(), message: 'Auto mode enabled' },
+  { timestamp: new Date(Date.now()-300000).toISOString(), message: 'Soil sensor: 45%' },
+];
+const MOCK_OTA = {
+  firmware: 'V3.4', version: '3.4.0', freeSketchSpace: 1048576,
+  sketchSize: 456789, flashSize: 4194304, chipId: 'ABC123', device: 'YAT-FARM-001'
+};
 
 //==== STATE ====
 let state = {
@@ -108,6 +158,14 @@ function toast(message, type = 'success') {
 
 //==== HTTP HELPERS ====
 async function espGet(path) {
+  if (IS_DEMO) {
+    if (path === '/api/status') return Object.assign({}, MOCK_DATA, { time: new Date().toLocaleString('th-TH'), uptime: (MOCK_DATA.uptime + Math.floor(Date.now()/1000) % 86400) });
+    if (path === '/api/weather') return MOCK_WEATHER;
+    if (path === '/api/logs') return MOCK_LOGS;
+    if (path === '/api/timer') return { running: false, remaining_minutes: 0 };
+    if (path === '/api/ota/info') return MOCK_OTA;
+    return null;
+  }
   try {
     var c = new AbortController();
     var t = setTimeout(function(){ c.abort(); }, 5000);
@@ -122,6 +180,15 @@ async function espGet(path) {
 }
 
 async function espPost(path, body) {
+  if (IS_DEMO) {
+    if (path === '/api/stop') return { status: 'stopped' };
+    if (path === '/api/pump' || path === '/api/zone' || path === '/api/light') return { status: 'ok' };
+    if (path === '/api/settings') return { status: 'ok' };
+    if (path === '/api/timer') return body.action === 'start' ? { status: 'started' } : { status: 'stopped' };
+    if (path === '/api/reboot') return { status: 'rebooting' };
+    if (path === '/api/resetwifi') return { status: 'reset' };
+    return { status: 'ok' };
+  }
   try {
     var c = new AbortController();
     var t = setTimeout(function(){ c.abort(); }, 8000);
@@ -597,7 +664,8 @@ async function uploadFirmware() {
   $('#uploadProgressContainer').classList.remove('hidden');
   $('#otaStatus').classList.add('hidden');
   var xhr = new XMLHttpRequest();
-  xhr.open('POST', ESP_BASE + '/api/update', true);
+  if (IS_DEMO) { toast('Demo Mode: ไม่สามารถอัปโหลดเฟิร์มแวร์ได้', 'warn'); return; }
+    xhr.open('POST', ESP_BASE + '/api/update', true);
   xhr.setRequestHeader('Content-Type', 'application/octet-stream');
   xhr.upload.onprogress = function(e) {
     if (e.lengthComputable) {
@@ -796,6 +864,26 @@ function render() {
 //==== INIT ====
 applyTheme();
 render();
+// Remove loading screen
+var ls = document.getElementById('loading-screen');
+if (ls) { ls.style.opacity = '0'; setTimeout(function(){ ls.style.display = 'none'; }, 500); }
+// Show demo banner if on GitHub Pages
+if (IS_DEMO) {
+  var banner = document.createElement('div');
+  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#ff9800;color:white;text-align:center;padding:4px;font-size:12px;z-index:9998;';
+  banner.innerHTML = '⚠️ DEMO MODE — เชื่อมต่อกับ ESP8266 เพื่อใช้งานจริง | Demo data is shown';
+  document.body.appendChild(banner);
+  // Load mock data immediately
+  state.espData = MOCK_DATA;
+  state.espOnline = true;
+  state.espLastSeen = Date.now();
+  state.weatherData = MOCK_WEATHER;
+  state.logs = MOCK_LOGS;
+  state.otaInfo = MOCK_OTA;
+  state.loading = false;
+  state.chartHistory.push({ time: new Date().toLocaleTimeString('th-TH'), soil: 45, temperature: 28.5, humidity: 65 });
+  render(); renderCharts();
+}
 fetchESPStatus();
 fetchESPLogs();
 fetchESPTimer();
