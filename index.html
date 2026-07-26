@@ -9,6 +9,7 @@
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/recharts@2.12.0/dist/umd/Recharts.min.js"></script>
+    <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
     <script>
       tailwind.config = {
         darkMode: 'class',
@@ -66,14 +67,6 @@
 
 <script>
 //==== CONFIG ====
-const ESP_BASE = window.location.origin;
-const POLL_INTERVAL = 3000;
-const LOG_POLL_INTERVAL = 10000;
-const TIMER_POLL_INTERVAL = 2000;
-const WEATHER_POLL_INTERVAL = 60000;
-const MAX_RETRIES = 3;
-const RECONNECT_DELAY = 5000;
-//==== DEMO MODE (GitHub Pages / offline preview) ====
 const IS_DEMO = !window.location.origin.includes('192.168.') && 
                 !window.location.origin.includes('localhost') &&
                 !window.location.origin.includes('127.0.0.1') &&
@@ -81,7 +74,32 @@ const IS_DEMO = !window.location.origin.includes('192.168.') &&
                 !window.location.origin.includes('192.168.4.') &&
                 (window.location.hostname.includes('github.io') || 
                  window.location.hostname.includes('base44.app'));
-
+let ESP_IP = localStorage.getItem('esp_ip') || '';
+let ESP_BASE = (IS_DEMO && ESP_IP) ? ('http://' + ESP_IP) : window.location.origin;
+function updateESPBase() {
+  if (IS_DEMO && ESP_IP) ESP_BASE = 'http://' + ESP_IP;
+  else ESP_BASE = window.location.origin;
+  localStorage.setItem('esp_ip', ESP_IP);
+}
+const POLL_INTERVAL = 3000;
+const LOG_POLL_INTERVAL = 10000;
+const TIMER_POLL_INTERVAL = 2000;
+const WEATHER_POLL_INTERVAL = 60000;
+const MAX_RETRIES = 3;
+const RECONNECT_DELAY = 5000;
+//==== MQTT (for remote access via HiveMQ Cloud WebSocket) ====
+const MQTT_HOST = "650188a0ee2b4367b7c131fb385590a9.s1.eu.hivemq.cloud";
+const MQTT_WSS_PORT = 8884;
+const MQTT_USER = "smartfarm";
+const MQTT_PASS = "Kla12345";
+const MQTT_DEVICE = "YAT-FARM-001";
+const TOPIC_STATUS  = "yat/farm/" + MQTT_DEVICE + "/status";
+const TOPIC_CONTROL = "yat/farm/" + MQTT_DEVICE + "/control";
+const TOPIC_HEALTH  = "yat/farm/" + MQTT_DEVICE + "/health";
+const TOPIC_ONLINE  = "yat/farm/" + MQTT_DEVICE + "/online";
+let mqttClient = null;
+let mqttConnected = false;
+//==== DEMO MODE ====
 const MOCK_DATA = {
   pump: false, zone1: false, zone2: false, light: false,
   temperature: 28.5, humidity: 65, soil: 45, soilRaw: 512,
@@ -158,7 +176,9 @@ function toast(message, type = 'success') {
 
 //==== HTTP HELPERS ====
 async function espGet(path) {
-  if (IS_DEMO) {
+  if (IS_DEMO && !ESP_IP) {
+    // MQTT mode — no HTTP polling needed
+    if (mqttConnected) return null; // data comes via MQTT subscription
     if (path === '/api/status') return Object.assign({}, MOCK_DATA, { time: new Date().toLocaleString('th-TH'), uptime: (MOCK_DATA.uptime + Math.floor(Date.now()/1000) % 86400) });
     if (path === '/api/weather') return MOCK_WEATHER;
     if (path === '/api/logs') return MOCK_LOGS;
@@ -180,7 +200,27 @@ async function espGet(path) {
 }
 
 async function espPost(path, body) {
-  if (IS_DEMO) {
+  if (IS_DEMO && !ESP_IP) {
+    // MQTT mode — publish command to control topic
+    if (mqttConnected) {
+      var cmd = {};
+      if (path === '/api/pump') cmd = { pump: body.state };
+      else if (path === '/api/zone') { cmd['zone' + body.zone] = body.state; }
+      else if (path === '/api/light') cmd = { light: body.state };
+      else if (path === '/api/stop') cmd = { stop: true };
+      else if (path === '/api/settings') {
+        if (body.auto !== undefined) cmd = { auto: body.auto };
+        if (body.soilThreshold !== undefined) cmd.soilThreshold = body.soilThreshold;
+        if (body.wateringDuration !== undefined) cmd.wateringDuration = body.wateringDuration;
+      }
+      else if (path === '/api/timer') cmd = { timer: body };
+      else if (path === '/api/reboot') cmd = { system: 'restart' };
+      else if (path === '/api/resetwifi') cmd = { system: 'reset_wifi' };
+      else cmd = body;
+      var ok = mqttPublish(cmd);
+      if (ok) return { status: 'ok' };
+      return { error: 'MQTT not connected' };
+    }
     if (path === '/api/stop') return { status: 'stopped' };
     if (path === '/api/pump' || path === '/api/zone' || path === '/api/light') return { status: 'ok' };
     if (path === '/api/settings') return { status: 'ok' };
@@ -326,6 +366,14 @@ function renderDashboard() {
   html += '<div class="flex flex-wrap items-center justify-between gap-4">';
   html += '<div><h1 class="text-2xl font-bold">YAT Smart Farm</h1>';
   html += '<p class="text-sm text-gray-500">' + (online ? 'อัพเดต: ' + timeAgo(state.espLastSeen) : 'อุปกรณ์ Offline') + '</p></div>';
+  // ESP IP connection (show only in demo mode)
+  if (IS_DEMO) {
+    html += '<div class="flex items-center gap-2 bg-white dark:bg-gray-800 rounded-lg px-3 py-2 shadow">';
+    html += '<span class="text-sm text-gray-500">ESP IP:</span>';
+    html += '<input id="esp-ip-input" type="text" placeholder="192.168.1.100" value="' + (ESP_IP||'') + '" class="w-32 px-2 py-1 rounded border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm" onkeypress="if(event.key==='Enter')connectESP()">';
+    html += '<button onclick="connectESP()" class="bg-farm text-white px-3 py-1 rounded text-sm font-medium">เชื่อมต่อ</button>';
+    html += '</div>';
+  }
   html += '<div class="flex items-center gap-1 px-3 py-1 rounded-lg ' + (online ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-red-100 text-red-700') + '">';
   html += '<span class="w-2 h-2 rounded-full ' + (online ? 'bg-green-500 pulse-dot' : 'bg-red-500') + '"></span>';
   html += '<span class="text-xs font-medium">' + (online ? 'Online' : 'Offline') + '</span></div></div>';
@@ -861,6 +909,138 @@ function render() {
   if (state.currentPage === 'dashboard') renderCharts();
 }
 
+
+
+//==== MQTT CONNECTION ====
+function connectMQTT() {
+  if (!IS_DEMO || typeof mqtt === 'undefined') return;
+  var url = 'wss://' + MQTT_HOST + ':' + MQTT_WSS_PORT + '/mqtt';
+  console.log('MQTT connecting to', url);
+  try {
+    mqttClient = mqtt.connect(url, {
+      clientId: 'web-' + Math.random().toString(16).substr(2, 8),
+      username: MQTT_USER,
+      password: MQTT_PASS,
+      clean: true,
+      reconnectPeriod: 5000,
+      connectTimeout: 10000
+    });
+
+    mqttClient.on('connect', function() {
+      console.log('MQTT connected!');
+      mqttConnected = true;
+      toast('เชื่อมต่อ MQTT สำเร็จ — ควบคุมจากทุกที่ได้แล้ว', 'success');
+      mqttClient.subscribe([TOPIC_STATUS, TOPIC_HEALTH, TOPIC_ONLINE]);
+      // Request status update
+      mqttClient.publish(TOPIC_CONTROL, JSON.stringify({status: true}));
+    });
+
+    mqttClient.on('message', function(topic, message) {
+      var msg = message.toString();
+      console.log('MQTT RX:', topic, msg);
+      try {
+        var data = JSON.parse(msg);
+        if (topic === TOPIC_STATUS) {
+          // Map MQTT status fields to dashboard state
+          state.espData = {
+            pump: data.pump || false,
+            zone1: data.zone1 || false,
+            zone2: data.zone2 || false,
+            light: data.light || false,
+            temperature: data.temperature || 0,
+            humidity: data.humidity || 0,
+            soil: data.soil || 0,
+            soilRaw: data.soilRaw || 0,
+            soilDry: data.soilDry || false,
+            soilWet: data.soilWet || false,
+            mode: data.mode || 'auto',
+            time: data.time || 'N/A',
+            device: data.device || MQTT_DEVICE,
+            firmware: data.firmware || 'V3.4',
+            wifi: data.wifi || false,
+            mqtt: data.mqtt || false,
+            rtc: data.rtc || false,
+            freeHeap: data.memory || data.heap || 0,
+            uptime: data.uptime || 0,
+            wateringPhase: state.espData ? (state.espData.wateringPhase || 0) : 0,
+            wateringZone: state.espData ? (state.espData.wateringZone || 0) : 0,
+            aiStatus: state.espData ? (state.espData.aiStatus || 'N/A') : 'N/A'
+          };
+          state.espOnline = true;
+          state.espLastSeen = Date.now();
+          state.retryCount = 0;
+          state.loading = false;
+          state.chartHistory.push({
+            time: new Date().toLocaleTimeString('th-TH'),
+            soil: data.soil || 0,
+            temperature: data.temperature || 0,
+            humidity: data.humidity || 0
+          });
+          if (state.chartHistory.length > 60) state.chartHistory.shift();
+          if (state.currentPage === 'dashboard') { render(); renderCharts(); }
+          else render();
+        } else if (topic === TOPIC_HEALTH) {
+          // Merge health data into espData
+          if (state.espData) {
+            state.espData.freeHeap = data.heap || state.espData.freeHeap;
+            state.espData.wateringPhase = data.wateringPhase || 0;
+            state.espData.wateringZone = data.wateringZone || 0;
+          }
+          if (state.currentPage === 'dashboard') render();
+        } else if (topic === TOPIC_ONLINE) {
+          // Online/LWT message
+          if (data && data.online === false) {
+            state.espOnline = false;
+            toast('ESP8266 Offline (LWT)', 'error');
+            render();
+          }
+        }
+      } catch(e) {
+        console.error('MQTT parse error:', e);
+      }
+    });
+
+    mqttClient.on('error', function(err) {
+      console.error('MQTT error:', err);
+      toast('MQTT error: ' + err.message, 'error');
+    });
+
+    mqttClient.on('close', function() {
+      console.log('MQTT disconnected');
+      mqttConnected = false;
+      if (state.espOnline) {
+        state.espOnline = false;
+        toast('MQTT หลุด — กำลังเชื่อมใหม่...', 'error');
+        render();
+      }
+    });
+
+  } catch(e) {
+    console.error('MQTT init error:', e);
+    toast('ไม่สามารถเชื่อมต่อ MQTT ได้', 'error');
+  }
+}
+
+function mqttPublish(cmd) {
+  if (mqttClient && mqttConnected) {
+    var payload = JSON.stringify(cmd);
+    mqttClient.publish(TOPIC_CONTROL, payload);
+    console.log('MQTT TX:', payload);
+    return true;
+  }
+  return false;
+}
+
+function connectESP() {
+  var input = document.getElementById('esp-ip-input');
+  if (input) ESP_IP = input.value.trim();
+  updateESPBase();
+  toast('กำลังเชื่อมต่อ ' + ESP_BASE + '...', 'info');
+  state.retryCount = 0;
+  state.loading = true;
+  fetchESPStatus();
+}
+
 //==== INIT ====
 applyTheme();
 render();
@@ -871,27 +1051,39 @@ if (ls) { ls.style.opacity = '0'; setTimeout(function(){ ls.style.display = 'non
 if (IS_DEMO) {
   var banner = document.createElement('div');
   banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#ff9800;color:white;text-align:center;padding:4px;font-size:12px;z-index:9998;';
-  banner.innerHTML = '⚠️ DEMO MODE — เชื่อมต่อกับ ESP8266 เพื่อใช้งานจริง | Demo data is shown';
+  if (ESP_IP) {
+    banner.innerHTML = '🔌 เชื่อมต่อ ESP8266 ที่ ' + ESP_IP + ' (HTTP)';
+    banner.style.background = '#1b5e20';
+  } else {
+    banner.innerHTML = '🌐 MQTT Mode — ควบคุมจากทุกที่ผ่าน HiveMQ Cloud';
+    banner.style.background = '#1565c0';
+  }
   document.body.appendChild(banner);
-  // Load mock data immediately
-  state.espData = MOCK_DATA;
-  state.espOnline = true;
-  state.espLastSeen = Date.now();
-  state.weatherData = MOCK_WEATHER;
-  state.logs = MOCK_LOGS;
-  state.otaInfo = MOCK_OTA;
-  state.loading = false;
-  state.chartHistory.push({ time: new Date().toLocaleTimeString('th-TH'), soil: 45, temperature: 28.5, humidity: 65 });
-  render(); renderCharts();
+  // If no ESP_IP, load mock data for preview
+  if (!ESP_IP) {
+    // Try MQTT first (works from anywhere)
+    connectMQTT();
+    // Show mock data while waiting for MQTT connection
+    state.espData = MOCK_DATA;
+    state.weatherData = MOCK_WEATHER;
+    state.logs = MOCK_LOGS;
+    state.otaInfo = MOCK_OTA;
+    state.loading = false;
+    state.chartHistory.push({ time: new Date().toLocaleTimeString('th-TH'), soil: 45, temperature: 28.5, humidity: 65 });
+    render(); renderCharts();
+  }
 }
 fetchESPStatus();
 fetchESPLogs();
 fetchESPTimer();
 fetchESPWeather();
-setInterval(fetchESPStatus, POLL_INTERVAL);
-setInterval(fetchESPLogs, LOG_POLL_INTERVAL);
-setInterval(fetchESPTimer, TIMER_POLL_INTERVAL);
-setInterval(fetchESPWeather, WEATHER_POLL_INTERVAL);
+// Only use HTTP polling if not on MQTT (ESP8266 local mode or ESP_IP set)
+if (!IS_DEMO || ESP_IP) {
+  setInterval(fetchESPStatus, POLL_INTERVAL);
+  setInterval(fetchESPLogs, LOG_POLL_INTERVAL);
+  setInterval(fetchESPTimer, TIMER_POLL_INTERVAL);
+  setInterval(fetchESPWeather, WEATHER_POLL_INTERVAL);
+}
 </script>
 </body>
 </html>
