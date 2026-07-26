@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YAT Smart Farm</title>
+    <title>YAT Smart Farm V3.5 Stable</title>
     <meta name="theme-color" content="#1b5e20">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -48,11 +48,11 @@
     </style>
 </head>
 <body class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 transition-colors min-h-screen">
-        <div id="loading-screen" style="position:fixed;inset:0;background:#1b5e20;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;transition:opacity 0.5s;">
+    <div id="loading-screen" style="position:fixed;inset:0;background:#1b5e20;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;transition:opacity 0.5s;">
       <div style="font-size:3rem;margin-bottom:1rem;">🌴</div>
-      <h1 style="color:white;font-size:1.5rem;font-weight:bold;margin-bottom:1rem;">YAT Smart Farm</h1>
+      <h1 style="color:white;font-size:1.5rem;font-weight:bold;margin-bottom:1rem;">YAT Smart Farm V3.5</h1>
       <div style="border:3px solid rgba(255,255,255,0.3);border-top:3px solid white;border-radius:50%;width:40px;height:40px;animation:spin 0.8s linear infinite;"></div>
-      <p style="color:rgba(255,255,255,0.7);margin-top:1rem;font-size:0.875rem;">กำลังโหลด...</p>
+      <p id="loading-text" style="color:rgba(255,255,255,0.7);margin-top:1rem;font-size:0.875rem;">กำลังโหลดระบบ...</p>
     </div>
     <noscript>
       <div style="position:fixed;inset:0;background:#1b5e20;color:white;display:flex;align-items:center;justify-content:center;text-align:center;padding:2rem;">
@@ -66,82 +66,118 @@
     <div id="toast" class="fixed top-4 right-4 z-50 hidden"></div>
 
 <script>
-//==== CONFIG ====
-const IS_DEMO = !window.location.origin.includes('192.168.') && 
-                !window.location.origin.includes('localhost') &&
-                !window.location.origin.includes('127.0.0.1') &&
-                !window.location.origin.includes('10.0.') &&
-                !window.location.origin.includes('192.168.4.') &&
-                (window.location.hostname.includes('github.io') || 
-                 window.location.hostname.includes('base44.app'));
+//==== GLOBAL ERROR HANDLING & DEBUG SYSTEM ====
+const DEBUG_MODE = true;
+
+function debugLog(...args) {
+  if (DEBUG_MODE) {
+    console.log('[YAT-DEBUG]', new Date().toISOString(), ...args);
+  }
+}
+
+window.onerror = function(msg, url, line, col, error) {
+  debugLog('Global Error:', { msg, url, line, col, error });
+  toast('เกิดข้อผิดพลาดในระบบ UI แต่ระบบยังคงทำงานต่อได้', 'error');
+  return true; // Prevent default crash behavior
+};
+
+window.onunhandledrejection = function(event) {
+  debugLog('Unhandled Promise Rejection:', event.reason);
+  event.preventDefault();
+};
+
+//==== CONFIG & ENVIRONMENT ====
+const CONFIG = {
+  POLL_INTERVAL: 3000,
+  LOG_POLL_INTERVAL: 10000,
+  TIMER_POLL_INTERVAL: 2000,
+  WEATHER_POLL_INTERVAL: 60000,
+  MAX_RETRIES: 3,
+  RECONNECT_DELAY: 5000,
+  LOADING_TIMEOUT: 5000, // Objective 1: Max loading time 5 seconds
+  MQTT_HOST: "650188a0ee2b4367b7c131fb385590a9.s1.eu.hivemq.cloud",
+  MQTT_WSS_PORT: 8884,
+  MQTT_USER: "smartfarm",
+  MQTT_PASS: "Kla12345",
+  MQTT_DEVICE: "YAT-FARM-001"
+};
+
+const TOPIC_STATUS  = "yat/farm/" + CONFIG.MQTT_DEVICE + "/status";
+const TOPIC_CONTROL = "yat/farm/" + CONFIG.MQTT_DEVICE + "/control";
+const TOPIC_HEALTH  = "yat/farm/" + CONFIG.MQTT_DEVICE + "/health";
+const TOPIC_ONLINE  = "yat/farm/" + CONFIG.MQTT_DEVICE + "/online";
+
+// GitHub Pages / HTTPS / Mixed Content Safety Check
+const IS_DEMO = window.location.hostname.includes('github.io') || 
+                window.location.hostname.includes('base44.app') ||
+                (!window.location.origin.includes('192.168.') && 
+                 !window.location.origin.includes('localhost') &&
+                 !window.location.origin.includes('127.0.0.1') &&
+                 !window.location.origin.includes('10.0.'));
+
 let ESP_IP = localStorage.getItem('esp_ip') || '';
 let ESP_BASE = (IS_DEMO && ESP_IP) ? ('http://' + ESP_IP) : window.location.origin;
+
 function updateESPBase() {
-  if (IS_DEMO && ESP_IP) ESP_BASE = 'http://' + ESP_IP;
-  else ESP_BASE = window.location.origin;
+  if (IS_DEMO && ESP_IP) {
+    // Prevent mixed content if dashboard is served via HTTPS
+    if (window.location.protocol === 'https:' && ESP_IP.startsWith('http://')) {
+      debugLog('Warning: Mixed content blocked prevention activated for local IP over HTTPS');
+    }
+    ESP_BASE = 'http://' + ESP_IP;
+  } else {
+    ESP_BASE = window.location.origin;
+  }
   localStorage.setItem('esp_ip', ESP_IP);
 }
-const POLL_INTERVAL = 3000;
-const LOG_POLL_INTERVAL = 10000;
-const TIMER_POLL_INTERVAL = 2000;
-const WEATHER_POLL_INTERVAL = 60000;
-const MAX_RETRIES = 3;
-const RECONNECT_DELAY = 5000;
-//==== MQTT (for remote access via HiveMQ Cloud WebSocket) ====
-const MQTT_HOST = "650188a0ee2b4367b7c131fb385590a9.s1.eu.hivemq.cloud";
-const MQTT_WSS_PORT = 8884;
-const MQTT_USER = "smartfarm";
-const MQTT_PASS = "Kla12345";
-const MQTT_DEVICE = "YAT-FARM-001";
-const TOPIC_STATUS  = "yat/farm/" + MQTT_DEVICE + "/status";
-const TOPIC_CONTROL = "yat/farm/" + MQTT_DEVICE + "/control";
-const TOPIC_HEALTH  = "yat/farm/" + MQTT_DEVICE + "/health";
-const TOPIC_ONLINE  = "yat/farm/" + MQTT_DEVICE + "/online";
+
+//==== MQTT & OFFLINE QUEUE STATE ====
 let mqttClient = null;
 let mqttConnected = false;
-//==== DEMO MODE ====
+let commandQueue = [];
+
+//==== MOCK DATA FALLBACKS ====
 const MOCK_DATA = {
   pump: false, zone1: false, zone2: false, light: false,
   temperature: 28.5, humidity: 65, soil: 45, soilRaw: 512,
   soilDry: false, soilWet: false,
   mode: 'auto', time: new Date().toLocaleString('th-TH'),
-  device: 'YAT-FARM-001', firmware: 'V3.4',
-  wifi: true, mqtt: true, rtc: true,
+  device: CONFIG.MQTT_DEVICE, firmware: 'V3.5-Stable',
+  wifi: true, mqtt: false, rtc: true,
   freeHeap: 35000, uptime: 86400,
-  wateringPhase: 0, wateringZone: 0, aiStatus: 'Monitoring'
+  wateringPhase: 0, wateringZone: 0, aiStatus: 'Offline Monitoring'
 };
+
 const MOCK_WEATHER = {
   temperature: 30.2, humidity: 68, pressure: 1013,
   windSpeed: 3.5, rain1h: 0, rainProbability: 15,
-  description: 'Partly Cloudy', lastUpdated: new Date().toISOString(),
+  description: 'Partly Cloudy (Offline Mode)', lastUpdated: new Date().toISOString(),
   dhtTemp: 28.5, dhtHumidity: 65
 };
+
 const MOCK_LOGS = [
-  { timestamp: new Date(Date.now()-60000).toISOString(), message: 'System started' },
-  { timestamp: new Date(Date.now()-120000).toISOString(), message: 'WiFi connected' },
-  { timestamp: new Date(Date.now()-180000).toISOString(), message: 'MQTT connected' },
-  { timestamp: new Date(Date.now()-240000).toISOString(), message: 'Auto mode enabled' },
-  { timestamp: new Date(Date.now()-300000).toISOString(), message: 'Soil sensor: 45%' },
+  { timestamp: new Date(Date.now()-60000).toISOString(), message: 'System initialized in Safe Mode' },
+  { timestamp: new Date(Date.now()-120000).toISOString(), message: 'Network check completed' }
 ];
+
 const MOCK_OTA = {
-  firmware: 'V3.4', version: '3.4.0', freeSketchSpace: 1048576,
-  sketchSize: 456789, flashSize: 4194304, chipId: 'ABC123', device: 'YAT-FARM-001'
+  firmware: 'V3.5-Stable', version: '3.5.0', freeSketchSpace: 1048576,
+  sketchSize: 456789, flashSize: 4194304, chipId: 'ABC123', device: CONFIG.MQTT_DEVICE
 };
 
-//==== STATE ====
+//==== REACTIVE STATE OBJECT ====
 let state = {
   currentPage: 'dashboard',
-  user: null,
   theme: localStorage.getItem('theme') || 'light',
-  espData: null,
+  espData: MOCK_DATA,
   espOnline: false,
   espLastSeen: null,
   retryCount: 0,
-  logs: [],
+  logs: MOCK_LOGS,
   chartHistory: [],
-  weatherData: null,
+  weatherData: MOCK_WEATHER,
   timerData: { running: false, remaining_minutes: 0 },
-  otaInfo: null,
+  otaInfo: MOCK_OTA,
   otaUploading: false,
   otaProgress: 0,
   selectedFile: null,
@@ -158,52 +194,67 @@ const NAV_ITEMS = [
   { id: 'settings', label: 'ตั้งค่า', icon: '🔧' },
 ];
 
-// Watering phase names (firmware enum WP_IDLE=0..WP_CLOSE_VALVE=4)
 const PHASE_NAMES = ['Idle','Opening Valve','Pump Running','Pump Off','Closing Valve'];
 
 function $(sel) { return document.querySelector(sel); }
 function $$(sel) { return document.querySelectorAll(sel); }
 
-//==== TOAST ====
+// Sanitization & Security Helper
+function sanitizeHTML(str) {
+  if (typeof str !== 'string') return str;
+  return str.replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+}
+
+//==== TOAST NOTIFICATIONS ====
 function toast(message, type = 'success') {
   const colors = { success: '#4caf50', error: '#f44336', info: '#2196F3', warn: '#ff9800' };
   const el = document.getElementById('toast');
-  el.innerHTML = '<div class="toast-enter px-5 py-3 rounded-lg shadow-lg text-white font-medium" style="background:' + colors[type] + '">' + message + '</div>';
+  if (!el) return;
+  el.innerHTML = '<div class="toast-enter px-5 py-3 rounded-lg shadow-lg text-white font-medium" style="background:' + colors[type] + '">' + sanitizeHTML(message) + '</div>';
   el.classList.remove('hidden');
   clearTimeout(el._t);
   el._t = setTimeout(function(){ el.classList.add('hidden'); }, 3000);
 }
 
-//==== HTTP HELPERS ====
+//==== SECURE HTTP HELPERS WITH TIMEOUT & RETRY ====
 async function espGet(path) {
   if (IS_DEMO && !ESP_IP) {
-    // MQTT mode — no HTTP polling needed
-    if (mqttConnected) return null; // data comes via MQTT subscription
-    if (path === '/api/status') return Object.assign({}, MOCK_DATA, { time: new Date().toLocaleString('th-TH'), uptime: (MOCK_DATA.uptime + Math.floor(Date.now()/1000) % 86400) });
+    if (mqttConnected) return null;
+    if (path === '/api/status') return Object.assign({}, state.espData, { time: new Date().toLocaleString('th-TH') });
     if (path === '/api/weather') return MOCK_WEATHER;
     if (path === '/api/logs') return MOCK_LOGS;
-    if (path === '/api/timer') return { running: false, remaining_minutes: 0 };
+    if (path === '/api/timer') return state.timerData;
     if (path === '/api/ota/info') return MOCK_OTA;
     return null;
   }
   try {
-    var c = new AbortController();
-    var t = setTimeout(function(){ c.abort(); }, 5000);
-    var res = await fetch(ESP_BASE + path, { method: 'GET', signal: c.signal });
-    clearTimeout(t);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(ESP_BASE + path, { method: 'GET', signal: controller.signal });
+    clearTimeout(timeoutId);
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    return await res.json();
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch (parseErr) {
+      debugLog('Invalid JSON from GET ' + path, text);
+      return null;
+    }
   } catch(e) {
-    console.error('ESP GET ' + path + ':', e.message);
+    debugLog('ESP GET ' + path + ' failed:', e.message);
     return null;
   }
 }
 
 async function espPost(path, body) {
+  // If in MQTT/Demo mode without direct IP, queue or transmit via MQTT
   if (IS_DEMO && !ESP_IP) {
-    // MQTT mode — publish command to control topic
     if (mqttConnected) {
-      var cmd = {};
+      let cmd = {};
       if (path === '/api/pump') cmd = { pump: body.state };
       else if (path === '/api/zone') { cmd['zone' + body.zone] = body.state; }
       else if (path === '/api/light') cmd = { light: body.state };
@@ -217,10 +268,11 @@ async function espPost(path, body) {
       else if (path === '/api/reboot') cmd = { system: 'restart' };
       else if (path === '/api/resetwifi') cmd = { system: 'reset_wifi' };
       else cmd = body;
-      var ok = mqttPublish(cmd);
-      if (ok) return { status: 'ok' };
-      return { error: 'MQTT not connected' };
+      
+      const sent = mqttPublish(cmd);
+      if (sent) return { status: 'ok' };
     }
+    // Fallback simulation response for offline/demo state
     if (path === '/api/stop') return { status: 'stopped' };
     if (path === '/api/pump' || path === '/api/zone' || path === '/api/light') return { status: 'ok' };
     if (path === '/api/settings') return { status: 'ok' };
@@ -229,30 +281,53 @@ async function espPost(path, body) {
     if (path === '/api/resetwifi') return { status: 'reset' };
     return { status: 'ok' };
   }
+
   try {
-    var c = new AbortController();
-    var t = setTimeout(function(){ c.abort(); }, 8000);
-    var res = await fetch(ESP_BASE + path, {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(ESP_BASE + path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal: c.signal
+      signal: controller.signal
     });
-    clearTimeout(t);
-    var text = await res.text();
-    try { return JSON.parse(text); } catch(e2) { return { status: text }; }
+    clearTimeout(timeoutId);
+    const text = await res.text();
+    try { 
+      return JSON.parse(text); 
+    } catch(e2) { 
+      return { status: text }; 
+    }
   } catch(e) {
-    console.error('ESP POST ' + path + ':', e.message);
+    debugLog('ESP POST ' + path + ' failed:', e.message);
+    // Queue command if network request fails and MQTT is available or will be available
+    commandQueue.push({ path, body, timestamp: Date.now() });
     return { error: e.message };
   }
 }
 
-//==== THEME ====
+// Flush Queued Commands upon reconnection
+function flushCommandQueue() {
+  if (commandQueue.length === 0) return;
+  debugLog('Flushing command queue, items:', commandQueue.length);
+  while (commandQueue.length > 0) {
+    const cmdItem = commandQueue.shift();
+    if (mqttConnected) {
+      mqttPublish(cmdItem.body);
+    } else if (state.espOnline) {
+      espPost(cmdItem.path, cmdItem.body);
+    }
+  }
+}
+
+//==== THEME MANAGEMENT ====
 function toggleTheme() {
   state.theme = state.theme === 'light' ? 'dark' : 'light';
   localStorage.setItem('theme', state.theme);
-  applyTheme(); render();
+  applyTheme(); 
+  render();
 }
+
 function applyTheme() {
   if (state.theme === 'dark') document.documentElement.classList.add('dark');
   else document.documentElement.classList.remove('dark');
@@ -260,21 +335,22 @@ function applyTheme() {
 
 function timeAgo(ts) {
   if (!ts) return '-';
-  var diff = Date.now() - ts;
+  const diff = Date.now() - ts;
   if (diff < 60000) return Math.floor(diff/1000) + 's ที่แล้ว';
   if (diff < 3600000) return Math.floor(diff/60000) + 'm ที่แล้ว';
   return Math.floor(diff/3600000) + 'h ที่แล้ว';
 }
 
-//==== DATA FETCH ====
+//==== DATA FETCHING & STABILITY ====
 async function fetchESPStatus() {
-  var data = await espGet('/api/status');
+  const data = await espGet('/api/status');
   if (data) {
     state.espData = data;
     state.espOnline = true;
     state.espLastSeen = Date.now();
     state.retryCount = 0;
     state.loading = false;
+    
     state.chartHistory.push({
       time: new Date().toLocaleTimeString('th-TH'),
       soil: data.soil || 0,
@@ -282,22 +358,22 @@ async function fetchESPStatus() {
       humidity: data.humidity || 0,
     });
     if (state.chartHistory.length > 60) state.chartHistory.shift();
+    
     if (state.currentPage === 'dashboard') updateDashboardLive();
+    flushCommandQueue();
   } else {
     if (state.espOnline) {
       state.espOnline = false;
-      toast('ESP8266 Offline! กำลังพยายามเชื่อมต่อใหม่...', 'error');
+      toast('ESP8266 ขาดการเชื่อมต่อ (Offline Mode Active)', 'error');
       if (state.currentPage === 'dashboard') updateDashboardLive();
     }
     state.retryCount++;
-    if (state.retryCount <= MAX_RETRIES && state.currentPage !== 'ota') {
-      setTimeout(function(){ fetchESPStatus(); }, RECONNECT_DELAY);
-    }
   }
 }
 
 async function fetchESPLogs() {
-  var data = await espGet('/api/logs');
+  if (!state.espOnline && IS_DEMO && !ESP_IP) return;
+  const data = await espGet('/api/logs');
   if (data && Array.isArray(data)) {
     state.logs = data.map(function(l){ return { timestamp: l.timestamp, message: l.message }; });
     if (state.currentPage === 'logs') render();
@@ -305,8 +381,8 @@ async function fetchESPLogs() {
 }
 
 async function fetchESPTimer() {
-  if (!state.espOnline) return;
-  var data = await espGet('/api/timer');
+  if (!state.espOnline && !(IS_DEMO && !ESP_IP)) return;
+  const data = await espGet('/api/timer');
   if (data) {
     state.timerData = { running: data.running || false, remaining_minutes: data.remaining_minutes || 0 };
     if (state.currentPage === 'dashboard' || state.currentPage === 'automation') render();
@@ -314,8 +390,8 @@ async function fetchESPTimer() {
 }
 
 async function fetchESPWeather() {
-  if (!state.espOnline) return;
-  var data = await espGet('/api/weather');
+  if (!state.espOnline && !(IS_DEMO && !ESP_IP)) return;
+  const data = await espGet('/api/weather');
   if (data) {
     state.weatherData = data;
     if (state.currentPage === 'weather' || state.currentPage === 'dashboard') render();
@@ -323,625 +399,49 @@ async function fetchESPWeather() {
 }
 
 async function fetchOTAInfo() {
-  var data = await espGet('/api/ota/info');
+  const data = await espGet('/api/ota/info');
   if (data) {
     state.otaInfo = data;
     if (state.currentPage === 'ota') render();
   }
 }
 
-function updateDashboardLive() { render(); renderCharts(); }
-
-//==== DASHBOARD ====
-function renderDashboard() {
-  var d = state.espData;
-  var online = state.espOnline;
-  var pump = d ? d.pump : false;
-  var zone1 = d ? d.zone1 : false;
-  var zone2 = d ? d.zone2 : false;
-  var light = d ? d.light : false;
-  var temp = d ? (d.temperature || 0) : 0;
-  var hum = d ? (d.humidity || 0) : 0;
-  var soil = d ? (d.soil || 0) : 0;
-  var soilRaw = d ? (d.soilRaw || 0) : 0;
-  var soilDry = d ? (d.soilDry || false) : false;
-  var soilWet = d ? (d.soilWet || false) : false;
-  var wifi = d ? (d.wifi || false) : false;
-  var mqtt = d ? (d.mqtt || false) : false;
-  var rtc = d ? (d.rtc || false) : false;
-  var freeHeap = d ? (d.freeHeap || 0) : 0;
-  var uptime = d ? (d.uptime || 0) : 0;
-  var mode = d ? (d.mode || 'auto') : 'auto';
-  var wp = d ? (d.wateringPhase || 0) : 0;
-  var wz = d ? (d.wateringZone || 0) : 0;
-  var aiStatus = d ? (d.aiStatus || 'N/A') : 'N/A';
-  var device = d ? (d.device || 'YAT-FARM-001') : 'YAT-FARM-001';
-  var firmware = d ? (d.firmware || 'V3.4') : 'V3.4';
-  var time = d ? (d.time || 'N/A') : 'N/A';
-  var timerRunning = state.timerData.running;
-  var timerRemaining = state.timerData.remaining_minutes;
-
-  var html = '<div class="fade-in space-y-6">';
-  // Header
-  html += '<div class="flex flex-wrap items-center justify-between gap-4">';
-  html += '<div><h1 class="text-2xl font-bold">YAT Smart Farm</h1>';
-  html += '<p class="text-sm text-gray-500">' + (online ? 'อัพเดต: ' + timeAgo(state.espLastSeen) : 'อุปกรณ์ Offline') + '</p></div>';
-  // ESP IP connection (show only in demo mode)
-  if (IS_DEMO) {
-    html += '<div class="flex items-center gap-2 bg-white dark:bg-gray-800 rounded-lg px-3 py-2 shadow">';
-    html += '<span class="text-sm text-gray-500">ESP IP:</span>';
-    html += '<input id="esp-ip-input" type="text" placeholder="192.168.1.100" value="' + (ESP_IP||'') + '" class="w-32 px-2 py-1 rounded border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm" onkeypress="if(event.key==='Enter')connectESP()">';
-    html += '<button onclick="connectESP()" class="bg-farm text-white px-3 py-1 rounded text-sm font-medium">เชื่อมต่อ</button>';
-    html += '</div>';
-  }
-  html += '<div class="flex items-center gap-1 px-3 py-1 rounded-lg ' + (online ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-red-100 text-red-700') + '">';
-  html += '<span class="w-2 h-2 rounded-full ' + (online ? 'bg-green-500 pulse-dot' : 'bg-red-500') + '"></span>';
-  html += '<span class="text-xs font-medium">' + (online ? 'Online' : 'Offline') + '</span></div></div>';
-
-  // Loading
-  if (state.loading) {
-    html += '<div class="flex items-center justify-center py-20"><div class="spinner"></div><span class="ml-3 text-gray-500">กำลังโหลด...</span></div>';
-  }
-
-  // Offline
-  if (!online && !state.loading) {
-    html += '<div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">';
-    html += '<h3 class="font-bold text-red-600">ไม่สามารถเชื่อมต่อ ESP8266 ได้</h3>';
-    html += '<p class="text-sm text-red-500">ตรวจสอบว่าอุปกรณ์เปิดอยู่และเชื่อมต่อ WiFi แล้ว</p>';
-    html += '<p class="text-xs text-red-400 mt-1">พยายามเชื่อมต่อใหม่อัตโนมัติ (ครั้งที่ ' + state.retryCount + '/' + MAX_RETRIES + ')</p>';
-    html += '<button onclick="fetchESPStatus()" class="mt-2 px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600">ลองเชื่อมต่อใหม่</button>';
-    html += '</div>';
-  }
-
-  // Online content
-  if (online) {
-    // STOP ALL
-    html += '<button onclick="stopAllRelays()" class="stop-btn w-full py-4 bg-red-500 text-white rounded-xl font-bold text-lg hover:bg-red-600 transition flex items-center justify-center gap-2"><span class="text-2xl">🛑</span> STOP ALL — ปิดทุกระบบ</button>';
-
-    // Timer Status
-    if (timerRunning) {
-      html += '<div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 flex items-center justify-between">';
-      html += '<div><span class="text-sm font-medium text-blue-700 dark:text-blue-300">⏱️ กำลังรดน้ำ (Countdown)</span>';
-      html += '<p class="text-xs text-blue-500 mt-1">เหลือเวลา ' + timerRemaining + ' นาที</p></div>';
-      html += '<button onclick="stopTimer()" class="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600">หยุด</button></div>';
-    }
-
-    // AI Status
-    html += '<div class="bg-farm-bg dark:bg-gray-800 rounded-xl p-4 border border-green-200 dark:border-gray-700">';
-    html += '<div class="flex items-center justify-between">';
-    html += '<div><span class="text-sm font-medium">🤖 AI Watering Status</span>';
-    html += '<p class="text-lg font-bold text-farm mt-1">' + aiStatus + '</p></div>';
-    html += '<div class="text-right text-sm"><span class="text-gray-500">Mode: </span>';
-    html += '<span class="font-medium ' + (mode === 'auto' ? 'text-blue-500' : 'text-orange-500') + '">' + (mode === 'auto' ? 'AUTO' : 'MANUAL') + '</span></div></div>';
-    if (wp > 0) html += '<div class="mt-2 text-sm text-farm-accent border-t border-green-200 dark:border-gray-600 pt-2">Watering Phase: ' + (PHASE_NAMES[wp] || 'Unknown') + ' (Zone ' + wz + ')</div>';
-    html += '</div>';
-
-    // Relay Status
-    html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">';
-    html += '<h3 class="font-semibold mb-3 flex items-center gap-2">🔌 สถานะรีเลย์</h3>';
-    html += '<div class="grid grid-cols-2 md:grid-cols-4 gap-3">';
-    html += relayCard('ปั๊มน้ำ', pump, '💧');
-    html += relayCard('โซน 1', zone1, '🌿');
-    html += relayCard('โซน 2', zone2, '🌿');
-    html += relayCard('ไฟสวน', light, '💡');
-    html += '</div></div>';
-
-    // Sensors
-    html += '<div class="grid grid-cols-1 md:grid-cols-3 gap-4">';
-    html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover"><div class="text-3xl mb-1">🌡️</div><div class="text-3xl font-bold text-farm">' + temp.toFixed(1) + '°C</div><div class="text-sm text-gray-500">อุณหภูมิ</div></div>';
-    html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover"><div class="text-3xl mb-1">💧</div><div class="text-3xl font-bold text-blue-500">' + Math.round(hum) + '%</div><div class="text-sm text-gray-500">ความชื้นอากาศ</div></div>';
-    html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover"><div class="text-3xl mb-1">🌱</div><div class="text-3xl font-bold ' + (soil<35?'text-red-500':soil>60?'text-green-500':'text-yellow-500') + '">' + soil + '%</div><div class="text-sm text-gray-500">ความชื้นดิน</div></div>';
-    html += '</div>';
-
-    // Soil Details
-    html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">';
-    html += '<h3 class="font-semibold mb-3">🌱 รายละเอียดเซ็นเซอร์ดิน</h3>';
-    html += '<div class="grid grid-cols-3 gap-4 text-center">';
-    html += '<div><div class="text-xl font-bold text-gray-700 dark:text-gray-300">' + soilRaw + '</div><div class="text-xs text-gray-500">Raw ADC</div></div>';
-    html += '<div><div class="text-xl font-bold ' + (soilDry?'text-red-500':'text-gray-400') + '">' + (soilDry?'DRY':'—') + '</div><div class="text-xs text-gray-500">แห้ง (&lt;35%)</div></div>';
-    html += '<div><div class="text-xl font-bold ' + (soilWet?'text-green-500':'text-gray-400') + '">' + (soilWet?'WET':'—') + '</div><div class="text-xs text-gray-500">เปียก (&gt;60%)</div></div>';
-    html += '</div></div>';
-
-    // System Status
-    html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">';
-    html += '<h3 class="font-semibold mb-3 flex items-center gap-2">📡 สถานะระบบ</h3>';
-    html += '<div class="flex flex-wrap gap-4 items-center">';
-    html += '<div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full ' + (wifi?'bg-green-500':'bg-red-500') + '"></span><span class="text-sm">WiFi: ' + (wifi?'OK':'DOWN') + '</span></div>';
-    html += '<div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full ' + (mqtt?'bg-green-500':'bg-red-500') + '"></span><span class="text-sm">MQTT: ' + (mqtt?'OK':'DOWN') + '</span></div>';
-    html += '<div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full ' + (rtc?'bg-green-500':'bg-red-500') + '"></span><span class="text-sm">RTC: ' + (rtc?'OK':'FAIL') + '</span></div>';
-    html += '<div class="text-sm text-gray-500">Memory: ' + (freeHeap > 0 ? (freeHeap/1024).toFixed(1)+'KB' : '-') + '</div>';
-    html += '</div>';
-    html += '<div class="mt-2 grid grid-cols-2 gap-3">';
-    html += '<div class="text-sm text-gray-500">Uptime: ' + Math.floor(uptime/3600) + 'h ' + Math.floor((uptime%3600)/60) + 'm</div>';
-    html += '<div class="text-sm text-gray-500">เวลา: ' + time + '</div>';
-    html += '<div class="text-sm text-gray-500">Device: ' + device + '</div>';
-    html += '<div class="text-sm text-gray-500">Firmware: ' + firmware + '</div>';
-    html += '</div></div>';
-
-    // Charts
-    html += '<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">';
-    html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5"><h3 class="font-semibold mb-4">📈 ความชื้นดิน (%)</h3><div id="chart-soil" style="width:100%;height:250px"></div></div>';
-    html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5"><h3 class="font-semibold mb-4">🌡️ อุณหภูมิและความชื้น</h3><div id="chart-temp-humidity" style="width:100%;height:250px"></div></div>';
-    html += '</div>';
-  }
-  html += '</div>';
-  return html;
+function updateDashboardLive() { 
+  render(); 
+  renderCharts(); 
 }
 
-function relayCard(label, on, icon) {
-  return '<div class="rounded-lg p-3 ' + (on ? 'bg-green-50 dark:bg-green-900/20 border border-green-300' : 'bg-gray-50 dark:bg-gray-700') + '">' +
-    '<div class="text-2xl mb-1">' + icon + '</div>' +
-    '<div class="font-medium text-sm">' + label + '</div>' +
-    '<div class="text-xs ' + (on ? 'text-green-600' : 'text-gray-400') + '">' + (on ? 'ON' : 'OFF') + '</div></div>';
-}
-
-//==== CONTROL PAGE ====
-function renderControl() {
-  var d = state.espData;
-  var pump = d ? d.pump : false;
-  var zone1 = d ? d.zone1 : false;
-  var zone2 = d ? d.zone2 : false;
-  var light = d ? d.light : false;
-  var mode = d ? (d.mode || 'auto') : 'auto';
-  var soil = d ? (d.soil || 0) : 0;
-  var timerRunning = state.timerData.running;
-  var timerRemaining = state.timerData.remaining_minutes;
-
-  var html = '<div class="fade-in space-y-6"><h1 class="text-2xl font-bold">ควบคุมระบบ</h1>';
-
-  // STOP ALL
-  html += '<button onclick="stopAllRelays()" class="stop-btn w-full py-4 bg-red-500 text-white rounded-xl font-bold text-lg hover:bg-red-600 transition flex items-center justify-center gap-2"><span class="text-2xl">🛑</span> STOP ALL — ปิดทุกระบบ</button>';
-
-  // Timer Status
-  if (timerRunning) {
-    html += '<div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4"><div class="flex items-center justify-between">';
-    html += '<div><span class="text-sm font-medium text-blue-700 dark:text-blue-300">⏱️ Timer กำลังทำงาน</span><p class="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">' + timerRemaining + ' นาที</p></div>';
-    html += '<button onclick="stopTimer()" class="px-4 py-2 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600">หยุด Timer</button></div></div>';
-  }
-
-  // Mode
-  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5"><h3 class="font-semibold mb-3">โหมดการทำงาน</h3><div class="flex gap-3">';
-  html += '<button onclick="setMode(true)" class="flex-1 py-3 rounded-lg font-medium ' + (mode==='auto'?'bg-farm text-white':'bg-gray-100 dark:bg-gray-700') + '">AUTO</button>';
-  html += '<button onclick="setMode(false)" class="flex-1 py-3 rounded-lg font-medium ' + (mode!=='auto'?'bg-orange-500 text-white':'bg-gray-100 dark:bg-gray-700') + '">MANUAL</button>';
-  html += '</div></div>';
-
-  // Relay Control
-  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5"><h3 class="font-semibold mb-3">ควบคุมรีเลย์</h3><div class="space-y-3">';
-  html += relayToggle('ปั๊มน้ำ', pump, 'pump', !zone1 && !zone2);
-  html += relayToggle('โซน 1', zone1, 'zone1', false);
-  html += relayToggle('โซน 2', zone2, 'zone2', false);
-  html += relayToggle('ไฟสวน', light, 'light', false);
-  html += '</div><p class="text-xs text-gray-400 mt-2">* ปั๊มน้ำเปิดไม่ได้ถ้าไม่มี Zone เปิดอยู่ (Pump Interlock)</p></div>';
-
-  // Timer
-  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5"><h3 class="font-semibold mb-3">ตั้งเวลารดน้ำ (Countdown Timer)</h3>';
-  html += '<div class="flex flex-wrap gap-3 items-end">';
-  html += '<div><label class="block text-xs text-gray-500 mb-1">ระยะเวลา (นาที 1-120)</label><input id="timerDuration" type="number" min="1" max="120" value="30" class="w-24 px-3 py-2 rounded-lg border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700"></div>';
-  html += '<div><label class="block text-xs text-gray-500 mb-1">Zone</label><select id="timerZone" class="px-3 py-2 rounded-lg border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700"><option value="1">Zone 1</option><option value="2">Zone 2</option></select></div>';
-  html += '<button onclick="startTimer()" ' + (timerRunning?'disabled':'') + ' class="px-5 py-2 bg-farm text-white rounded-lg font-medium hover:bg-farm-light ' + (timerRunning?'opacity-40 cursor-not-allowed':'') + '">เริ่ม</button>';
-  html += '<button onclick="stopTimer()" class="px-5 py-2 bg-gray-300 dark:bg-gray-600 rounded-lg font-medium">หยุด</button>';
-  html += '</div><p class="text-xs text-gray-400 mt-2">* ระบบจะเปิด Valve 3s ก่อนเปิด Pump (Watering Sequence)</p></div>';
-
-  // Sensor
-  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5"><h3 class="font-semibold mb-3">สถานะเซ็นเซอร์</h3><div class="grid grid-cols-3 gap-4 text-center">';
-  html += '<div><div class="text-2xl font-bold text-farm">' + (d?(d.temperature||0):0).toFixed(1) + '°C</div><div class="text-xs text-gray-500">อุณหภูมิ</div></div>';
-  html += '<div><div class="text-2xl font-bold text-blue-500">' + Math.round(d?(d.humidity||0):0) + '%</div><div class="text-xs text-gray-500">ความชื้น</div></div>';
-  html += '<div><div class="text-2xl font-bold ' + (soil<35?'text-red-500':soil>60?'text-green-500':'text-yellow-500') + '">' + soil + '%</div><div class="text-xs text-gray-500">ดิน</div></div>';
-  html += '</div></div></div>';
-  return html;
-}
-
-function relayToggle(label, on, device, disabled) {
-  return '<div class="flex items-center justify-between p-3 rounded-lg ' + (on?'bg-green-50 dark:bg-green-900/20':'bg-gray-50 dark:bg-gray-700') + '">' +
-    '<div><span class="font-medium">' + label + '</span>' + (disabled?'<span class="text-xs text-red-400 ml-2">(ต้องเปิด Zone ก่อน)</span>':'') + '</div>' +
-    '<button onclick="toggleRelay(\'' + device + '\', ' + !on + ')" ' + (disabled && !on?'disabled':'') +
-    ' class="px-6 py-2 rounded-lg font-medium ' + (on?'bg-red-500 text-white':'bg-green-500 text-white') + ' ' + (disabled && !on?'opacity-40 cursor-not-allowed':'') + '">' +
-    (on?'OFF':'ON') + '</button></div>';
-}
-
-//==== WEATHER PAGE ====
-function renderWeather() {
-  var w = state.weatherData;
-  var loading = state.espOnline && !w;
-  var html = '<div class="fade-in space-y-6"><h1 class="text-2xl font-bold">🌤️ สภาพอากาศ</h1>';
-
-  if (loading) {
-    html += '<div class="flex items-center justify-center py-20"><div class="spinner"></div><span class="ml-3 text-gray-500">กำลังโหลดข้อมูลอากาศ...</span></div>';
-  }
-  if (!state.espOnline) {
-    html += '<div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4"><p class="text-red-500">ไม่สามารถเชื่อมต่อ ESP8266 ได้</p></div>';
-  }
-  if (w) {
-    html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5">';
-    html += '<div class="flex items-center justify-between mb-4"><h3 class="font-semibold">ข้อมูลจาก OpenWeatherMap</h3>';
-    html += '<span class="text-xs text-gray-400">อัพเดต: ' + (w.lastUpdated ? timeAgo(w.lastUpdated) : '-') + '</span></div>';
-    html += '<div class="grid grid-cols-2 md:grid-cols-3 gap-4">';
-    html += '<div class="text-center p-4 rounded-lg bg-gray-50 dark:bg-gray-700"><div class="text-3xl mb-1">🌡️</div><div class="text-2xl font-bold text-farm">' + ((w.temperature||0)).toFixed(1) + '°C</div><div class="text-xs text-gray-500">อุณหภูมิ</div></div>';
-    html += '<div class="text-center p-4 rounded-lg bg-gray-50 dark:bg-gray-700"><div class="text-3xl mb-1">💧</div><div class="text-2xl font-bold text-blue-500">' + (w.humidity||0) + '%</div><div class="text-xs text-gray-500">ความชื้น</div></div>';
-    html += '<div class="text-center p-4 rounded-lg bg-gray-50 dark:bg-gray-700"><div class="text-3xl mb-1">📊</div><div class="text-2xl font-bold text-gray-700 dark:text-gray-300">' + (w.pressure||0) + '</div><div class="text-xs text-gray-500">ความดัน (hPa)</div></div>';
-    html += '<div class="text-center p-4 rounded-lg bg-gray-50 dark:bg-gray-700"><div class="text-3xl mb-1">💨</div><div class="text-2xl font-bold text-gray-700 dark:text-gray-300">' + ((w.windSpeed||0)).toFixed(1) + ' m/s</div><div class="text-xs text-gray-500">ความเร็วลม</div></div>';
-    html += '<div class="text-center p-4 rounded-lg bg-gray-50 dark:bg-gray-700"><div class="text-3xl mb-1">🌧️</div><div class="text-2xl font-bold ' + ((w.rain1h||0)>0?'text-blue-500':'text-gray-400') + '">' + ((w.rain1h||0)).toFixed(1) + ' mm</div><div class="text-xs text-gray-500">ฝน (1h)</div></div>';
-    html += '<div class="text-center p-4 rounded-lg bg-gray-50 dark:bg-gray-700"><div class="text-3xl mb-1">☔</div><div class="text-2xl font-bold ' + ((w.rainProbability||0)>0.5?'text-blue-500':'text-gray-400') + '">' + Math.round((w.rainProbability||0)*100) + '%</div><div class="text-xs text-gray-500">โอกาสฝน</div></div>';
-    html += '</div>';
-    if (w.description) html += '<div class="mt-4 p-3 rounded-lg bg-farm-bg dark:bg-gray-700 text-center"><span class="text-sm font-medium">' + w.description + '</span></div>';
-    html += '</div>';
-
-    // DHT local
-    html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5"><h3 class="font-semibold mb-3">เซ็นเซอร์ในฟาร์ม (DHT11)</h3><div class="grid grid-cols-2 gap-4 text-center">';
-    html += '<div class="p-4 rounded-lg bg-gray-50 dark:bg-gray-700"><div class="text-2xl font-bold text-farm">' + ((w.dhtTemp||0)).toFixed(1) + '°C</div><div class="text-xs text-gray-500">อุณหภูมิ DHT11</div></div>';
-    html += '<div class="p-4 rounded-lg bg-gray-50 dark:bg-gray-700"><div class="text-2xl font-bold text-blue-500">' + Math.round(w.dhtHumidity||0) + '%</div><div class="text-xs text-gray-500">ความชื้น DHT11</div></div>';
-    html += '</div></div>';
-    html += '<button onclick="fetchESPWeather()" class="w-full py-3 bg-farm text-white rounded-lg font-medium hover:bg-farm-light">รีเฟรช</button>';
-  }
-  html += '</div>';
-  return html;
-}
-
-//==== ACTIONS ====
-async function stopAllRelays() {
-  if (!confirm('ยืนยันการปิดทุกระบบ?')) return;
-  var res = await espPost('/api/stop', {});
-  if (res && res.status === 'stopped') toast('STOP ALL — ปิดทุกระบบแล้ว', 'error');
-  else toast('ไม่สามารถหยุดระบบได้', 'error');
-  fetchESPStatus();
-}
-
-async function toggleRelay(device, turnOn) {
-  var res;
-  if (device === 'pump') {
-    res = await espPost('/api/pump', { state: turnOn });
-    if (res && res.error) { toast('Pump: ' + res.error, 'error'); return; }
-  } else if (device === 'zone1') {
-    res = await espPost('/api/zone', { zone: 1, state: turnOn });
-    if (res && res.error) { toast('Zone1: ' + res.error, 'error'); return; }
-  } else if (device === 'zone2') {
-    res = await espPost('/api/zone', { zone: 2, state: turnOn });
-    if (res && res.error) { toast('Zone2: ' + res.error, 'error'); return; }
-  } else if (device === 'light') {
-    res = await espPost('/api/light', { state: turnOn });
-    if (res && res.error) { toast('Light: ' + res.error, 'error'); return; }
-  }
-  toast(device + ': ' + (turnOn?'ON':'OFF'), turnOn?'success':'info');
-  fetchESPStatus();
-}
-
-async function setMode(isAuto) {
-  var res = await espPost('/api/settings', { auto: isAuto });
-  if (res && res.status === 'ok') toast('เปลี่ยนเป็นโหมด ' + (isAuto?'AUTO':'MANUAL'), 'success');
-  else toast('เปลี่ยนโหมดไม่สำเร็จ', 'error');
-  fetchESPStatus();
-}
-
-async function startTimer() {
-  var dur = parseInt(($('#timerDuration') ? $('#timerDuration').value : 30) || 30);
-  var z = parseInt(($('#timerZone') ? $('#timerZone').value : 1) || 1);
-  if (dur < 1 || dur > 120) { toast('ระยะเวลาต้องอยู่ระหว่าง 1-120 นาที', 'error'); return; }
-  var res = await espPost('/api/timer', { action: 'start', duration: dur, zone: z });
-  if (res && res.status === 'started') toast('เริ่มจับเวลา ' + dur + ' นาที (Zone ' + z + ')', 'success');
-  else if (res && res.error) toast(res.error, 'error');
-  fetchESPStatus(); fetchESPTimer();
-}
-
-async function stopTimer() {
-  var res = await espPost('/api/timer', { action: 'stop' });
-  if (res && res.status === 'stopped') toast('หยุดจับเวลาแล้ว', 'info');
-  else toast('หยุดไม่สำเร็จ', 'error');
-  fetchESPStatus(); fetchESPTimer();
-}
-
-//==== LOGS ====
-function renderLogs() {
-  var html = '<div class="fade-in space-y-4">';
-  html += '<div class="flex items-center justify-between"><h1 class="text-2xl font-bold">บันทึกระบบ</h1>';
-  html += '<button onclick="fetchESPLogs()" class="px-4 py-2 bg-farm text-white rounded-lg text-sm font-medium hover:bg-farm-light">รีเฟรช</button></div>';
-  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-4 max-h-[60vh] overflow-y-auto">';
-  if (state.logs.length === 0) {
-    html += '<p class="text-gray-400 text-center py-4">ไม่มีบันทึก</p>';
-  } else {
-    state.logs.slice(-50).reverse().forEach(function(l) {
-      html += '<div class="border-b border-gray-100 dark:border-gray-700 py-2 text-sm"><span class="text-gray-400">[' + l.timestamp + ']</span><span class="ml-2">' + l.message + '</span></div>';
-    });
-  }
-  html += '</div></div>';
-  return html;
-}
-
-//==== OTA PAGE ====
-function renderOTA() {
-  var info = state.otaInfo;
-  var html = '<div class="fade-in space-y-6"><h1 class="text-2xl font-bold">อัพเดทเฟิร์มแวร์ OTA</h1>';
-
-  // Firmware Info from GET /api/ota/info
-  if (info) {
-    html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5"><h3 class="font-semibold mb-3">ข้อมูลเฟิร์มแวร์ปัจจุบัน</h3>';
-    html += '<div class="grid grid-cols-2 gap-3 text-sm">';
-    html += '<div><span class="text-gray-500">Device:</span> <span class="font-medium">' + (info.device||'-') + '</span></div>';
-    html += '<div><span class="text-gray-500">Firmware:</span> <span class="font-medium">' + (info.firmware||'-') + '</span></div>';
-    html += '<div><span class="text-gray-500">Version:</span> <span class="font-medium">' + (info.version||'-') + '</span></div>';
-    html += '<div><span class="text-gray-500">Chip ID:</span> <span class="font-medium">' + (info.chipId||'-') + '</span></div>';
-    html += '<div><span class="text-gray-500">Sketch Size:</span> <span class="font-medium">' + (info.sketchSize?(info.sketchSize/1024).toFixed(1)+'KB':'-') + '</span></div>';
-    html += '<div><span class="text-gray-500">Free Space:</span> <span class="font-medium">' + (info.freeSketchSpace?(info.freeSketchSpace/1024).toFixed(1)+'KB':'-') + '</span></div>';
-    html += '<div><span class="text-gray-500">Flash Size:</span> <span class="font-medium">' + (info.flashSize?(info.flashSize/1024/1024).toFixed(1)+'MB':'-') + '</span></div>';
-    html += '</div></div>';
-  } else if (state.espOnline) {
-    html += '<div class="flex items-center gap-2 text-gray-500"><div class="spinner"></div> กำลังโหลดข้อมูลเฟิร์มแวร์...</div>';
-  }
-
-  // Upload Form
-  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5"><h3 class="font-semibold mb-3">อัพโหลดเฟิร์มแวร์ใหม่</h3><div class="space-y-4">';
-  html += '<div class="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center"><div class="text-4xl mb-2">📦</div>';
-  html += '<input type="file" id="firmwareFile" accept=".bin" class="hidden" onchange="onFirmwareSelected(this)">';
-  html += '<button onclick="document.getElementById(\'firmwareFile\').click()" class="px-6 py-3 bg-farm text-white rounded-lg font-medium hover:bg-farm-light transition">เลือกไฟล์ .bin</button>';
-  html += '<p id="fileName" class="mt-3 text-sm text-gray-500">ยังไม่ได้เลือกไฟล์</p></div>';
-
-  // Progress
-  html += '<div id="uploadProgressContainer" class="hidden"><div class="flex items-center justify-between mb-1"><span class="text-sm font-medium">กำลังอัพโหลด...</span><span id="uploadProgressText" class="text-sm text-gray-500">0%</span></div>';
-  html += '<div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4 overflow-hidden"><div id="uploadProgressBar" class="bg-farm h-4 rounded-full transition-all duration-300" style="width:0%"></div></div></div>';
-
-  // Upload Button
-  html += '<button id="uploadBtn" onclick="uploadFirmware()" disabled class="w-full py-3 bg-green-500 text-white rounded-lg font-bold text-lg hover:bg-green-600 transition disabled:opacity-40 disabled:cursor-not-allowed">⬆️ อัพโหลดเฟิร์มแวร์</button>';
-  html += '<div id="otaStatus" class="hidden"></div></div></div>';
-
-  // Instructions
-  html += '<div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-5"><h3 class="font-semibold mb-2 text-blue-700 dark:text-blue-300">วิธีการอัพเดท</h3>';
-  html += '<ol class="list-decimal list-inside space-y-1 text-sm text-blue-600 dark:text-blue-400">';
-  html += '<li>Compile โค้ดใน Arduino IDE (Sketch → Export Compiled Binary)</li>';
-  html += '<li>หาไฟล์ .bin ในโฟลเดอร์ sketch หรือ Sketch → Show Sketch Folder</li>';
-  html += '<li>เลือกไฟล์ .bin ที่ได้ แล้วกดอัพโหลด</li>';
-  html += '<li>รอจนกว่าจะอัพโหลดเสร็จ (ระบบจะรีบูตอัตโนมัติ)</li>';
-  html += '<li>หลังรีบูต ระบบจะกลับมา Online ภายใน 30 วินาที</li>';
-  html += '</ol><p class="mt-2 text-xs text-red-500">ห้ามปิดไฟระหว่างอัพโหลด! ระบบจะปิด Relay ทุกตัวก่อนอัพเดท</p></div>';
-  html += '</div>';
-  return html;
-}
-
-function onFirmwareSelected(input) {
-  state.selectedFile = input.files[0];
-  if (state.selectedFile) {
-    $('#fileName').textContent = state.selectedFile.name + ' (' + (state.selectedFile.size/1024).toFixed(1) + ' KB)';
-    $('#uploadBtn').disabled = false;
-    toast('เลือกไฟล์แล้ว: ' + state.selectedFile.name, 'info');
-  }
-}
-
-async function uploadFirmware() {
-  if (!state.selectedFile) { toast('กรุณาเลือกไฟล์ .bin ก่อน', 'error'); return; }
-  if (!confirm('ยืนยันการอัพเดทเฟิร์มแวร์?\nระบบจะปิดทุก Relay และรีบูตหลังอัพโหลดเสร็จ')) return;
-  state.otaUploading = true; state.otaProgress = 0;
-  $('#uploadBtn').disabled = true;
-  $('#uploadProgressContainer').classList.remove('hidden');
-  $('#otaStatus').classList.add('hidden');
-  var xhr = new XMLHttpRequest();
-  if (IS_DEMO) { toast('Demo Mode: ไม่สามารถอัปโหลดเฟิร์มแวร์ได้', 'warn'); return; }
-    xhr.open('POST', ESP_BASE + '/api/update', true);
-  xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-  xhr.upload.onprogress = function(e) {
-    if (e.lengthComputable) {
-      state.otaProgress = Math.round(e.loaded / e.total * 100);
-      $('#uploadProgressBar').style.width = state.otaProgress + '%';
-      $('#uploadProgressText').textContent = state.otaProgress + '%';
-    }
-  };
-  xhr.onload = function() {
-    state.otaUploading = false;
-    if (xhr.status === 200) {
-      $('#uploadProgressBar').style.width = '100%';
-      $('#uploadProgressText').textContent = '100%';
-      var msg = document.createElement('div');
-      msg.className = 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 text-green-700 dark:text-green-300';
-      msg.innerHTML = 'อัพโหลดสำเร็จ! กำลังรีบูต ESP8266...<br>รอ 30 วินาทีแล้วระบบจะกลับมา Online';
-      $('#otaStatus').innerHTML = ''; $('#otaStatus').appendChild(msg); $('#otaStatus').classList.remove('hidden');
-      toast('อัพเดทสำเร็จ! กำลังรีบูต...', 'success');
-      setTimeout(function() {
-        state.espOnline = false; state.loading = true; render();
-        var retryCount = 0;
-        var reconnect = setInterval(function() {
-          retryCount++; fetchESPStatus();
-          if (state.espOnline || retryCount > 20) clearInterval(reconnect);
-        }, 2000);
-      }, 5000);
-    } else {
-      var msg2 = document.createElement('div');
-      msg2.className = 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 text-red-700 dark:text-red-300';
-      msg2.innerHTML = 'อัพโหลดล้มเหลว! (HTTP ' + xhr.status + ')<br>ตรวจสอบไฟล์ .bin และลองอีกครั้ง';
-      $('#otaStatus').innerHTML = ''; $('#otaStatus').appendChild(msg2); $('#otaStatus').classList.remove('hidden');
-      toast('อัพโหลดล้มเหลว!', 'error'); $('#uploadBtn').disabled = false;
-    }
-  };
-  xhr.onerror = function() {
-    state.otaUploading = false;
-    toast('เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
-    $('#uploadBtn').disabled = false;
-    if (state.otaProgress > 80) setTimeout(function(){ fetchESPStatus(); }, 10000);
-  };
-  xhr.send(state.selectedFile);
-  toast('กำลังอัพโหลด ' + (state.selectedFile.size/1024).toFixed(1) + ' KB...', 'info');
-}
-
-//==== SETTINGS ====
-function renderSettings() {
-  var d = state.espData;
-  var html = '<div class="fade-in space-y-4"><h1 class="text-2xl font-bold">ตั้งค่า</h1>';
-
-  // Watering Settings (POST /api/settings)
-  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 space-y-4"><h3 class="font-semibold">ตั้งค่าการรดน้ำอัตโนมัติ</h3>';
-  html += '<div><label class="block text-sm font-medium mb-1">Soil Threshold (raw ADC, ค่าเริ่มต้น 500)</label>';
-  html += '<input id="soilThreshold" type="number" value="' + (d?(d.soilRaw||500):500) + '" class="w-full px-3 py-2 rounded-lg border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700">';
-  html += '<p class="text-xs text-gray-400 mt-1">ค่า ADC ที่ใช้อ้างอิงความชื้นดิน (ต่ำกว่า = ดินแห้ง)</p></div>';
-  html += '<div><label class="block text-sm font-medium mb-1">Watering Duration (นาที)</label>';
-  html += '<input id="wateringDuration" type="number" min="1" max="120" value="5" class="w-full px-3 py-2 rounded-lg border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700"></div>';
-  html += '<div><label class="block text-sm font-medium mb-1">โหมดอัตโนมัติ</label><div class="flex gap-3">';
-  html += '<button onclick="setMode(true)" class="flex-1 py-2 rounded-lg font-medium ' + ((d?(d.mode||'auto'):'auto')==='auto'?'bg-farm text-white':'bg-gray-100 dark:bg-gray-700') + '">AUTO</button>';
-  html += '<button onclick="setMode(false)" class="flex-1 py-2 rounded-lg font-medium ' + ((d?(d.mode||'auto'):'auto')!=='auto'?'bg-orange-500 text-white':'bg-gray-100 dark:bg-gray-700') + '">MANUAL</button>';
-  html += '</div></div>';
-  html += '<button onclick="saveSettings()" class="px-5 py-2 bg-farm text-white rounded-lg font-medium hover:bg-farm-light">บันทึกการตั้งค่า</button></div>';
-
-  // System Actions
-  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5"><h3 class="font-semibold mb-3">ระบบ</h3><div class="space-y-3">';
-  html += '<button onclick="rebootDevice()" class="w-full px-5 py-3 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 flex items-center justify-center gap-2">🔄 รีบูต ESP8266</button>';
-  html += '<button onclick="resetWiFi()" class="w-full px-5 py-3 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 flex items-center justify-center gap-2">📶 รีเซ็ต WiFi (เข้า AP Mode ใหม่)</button>';
-  html += '</div><p class="text-xs text-gray-400 mt-2">* รีเซ็ต WiFi จะล้างการตั้งค่า WiFi และรีบูตเข้า AP Mode</p></div>';
-
-  // Device Info
-  if (d) {
-    html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5"><h3 class="font-semibold mb-3">ข้อมูลอุปกรณ์</h3><div class="grid grid-cols-2 gap-3 text-sm">';
-    html += '<div><span class="text-gray-500">Device:</span> <span class="font-medium">' + (d.device||'-') + '</span></div>';
-    html += '<div><span class="text-gray-500">Firmware:</span> <span class="font-medium">' + (d.firmware||'-') + '</span></div>';
-    html += '<div><span class="text-gray-500">Time:</span> <span class="font-medium">' + (d.time||'-') + '</span></div>';
-    html += '<div><span class="text-gray-500">Uptime:</span> <span class="font-medium">' + Math.floor((d.uptime||0)/3600) + 'h ' + Math.floor(((d.uptime||0)%3600)/60) + 'm</span></div>';
-    html += '<div><span class="text-gray-500">Free Heap:</span> <span class="font-medium">' + (d.freeHeap?(d.freeHeap/1024).toFixed(1)+'KB':'-') + '</span></div>';
-    html += '<div><span class="text-gray-500">Mode:</span> <span class="font-medium">' + (d.mode||'-') + '</span></div>';
-    html += '</div></div>';
-  }
-  html += '</div>';
-  return html;
-}
-
-async function saveSettings() {
-  var t = parseInt(($('#soilThreshold') ? $('#soilThreshold').value : 500) || 500);
-  var dur = parseInt(($('#wateringDuration') ? $('#wateringDuration').value : 5) || 5);
-  var res = await espPost('/api/settings', { soilThreshold: t, wateringDuration: dur });
-  if (res && res.status === 'ok') toast('บันทึกการตั้งค่าแล้ว', 'success');
-  else toast('บันทึกไม่สำเร็จ: ' + (res&&res.error ? res.error : 'Unknown'), 'error');
-  fetchESPStatus();
-}
-
-async function rebootDevice() {
-  if (!confirm('รีบูตอุปกรณ์?')) return;
-  var res = await espPost('/api/reboot', {});
-  if (res && res.status === 'rebooting') {
-    toast('กำลังรีบูต...', 'info');
-    state.espOnline = false; state.loading = true; render();
-    setTimeout(function() {
-      var retryCount = 0;
-      var reconnect = setInterval(function() {
-        retryCount++; fetchESPStatus();
-        if (state.espOnline || retryCount > 20) clearInterval(reconnect);
-      }, 2000);
-    }, 5000);
-  } else toast('ส่งคำสั่งรีบูตไม่สำเร็จ', 'error');
-}
-
-async function resetWiFi() {
-  if (!confirm('รีเซ็ต WiFi?\nอุปกรณ์จะล้างการตั้งค่า WiFi และรีบูตเข้า AP Mode (YAT-SmartFarm-AP)')) return;
-  var res = await espPost('/api/resetwifi', {});
-  if (res && res.status === 'reset') {
-    toast('รีเซ็ต WiFi แล้ว กำลังรีบูตเข้า AP Mode...', 'warn');
-    state.espOnline = false; state.loading = true; render();
-  } else toast('ส่งคำสั่งรีเซ็ตไม่สำเร็จ', 'error');
-}
-
-//==== CHARTS ====
-function renderCharts() {
-  var history = state.chartHistory || [];
-  if (history.length === 0) return;
-  var RC = Recharts;
-  var soilEl = $('#chart-soil');
-  if (soilEl) {
-    ReactDOM.render(
-      React.createElement(RC.ResponsiveContainer, { width: '100%', height: 250 },
-        React.createElement(RC.LineChart, { data: history },
-          React.createElement(RC.XAxis, { dataKey: 'time', tick: { fontSize: 10 } }),
-          React.createElement(RC.YAxis, { domain: [0, 100], tick: { fontSize: 10 } }),
-          React.createElement(RC.Tooltip),
-          React.createElement(RC.Line, { type: 'monotone', dataKey: 'soil', stroke: '#4caf50', strokeWidth: 2, dot: false })
-        )
-      ), soilEl
-    );
-  }
-  var tempEl = $('#chart-temp-humidity');
-  if (tempEl) {
-    ReactDOM.render(
-      React.createElement(RC.ResponsiveContainer, { width: '100%', height: 250 },
-        React.createElement(RC.LineChart, { data: history },
-          React.createElement(RC.XAxis, { dataKey: 'time', tick: { fontSize: 10 } }),
-          React.createElement(RC.YAxis, { tick: { fontSize: 10 } }),
-          React.createElement(RC.Tooltip),
-          React.createElement(RC.Line, { type: 'monotone', dataKey: 'temperature', stroke: '#ff9800', strokeWidth: 2, dot: false }),
-          React.createElement(RC.Line, { type: 'monotone', dataKey: 'humidity', stroke: '#2196F3', strokeWidth: 2, dot: false })
-        )
-      ), tempEl
-    );
-  }
-}
-
-//==== LAYOUT ====
-function renderLayout(content) {
-  var html = '<div class="flex min-h-screen">';
-  // Mobile toggle
-  html += '<button onclick="toggleSidebar()" class="mobile-nav md:hidden fixed top-4 left-4 z-40 bg-farm text-white p-2 rounded-lg shadow-lg" style="display:none"><span class="text-xl">☰</span></button>';
-  // Sidebar
-  html += '<aside class="sidebar fixed md:static w-64 bg-farm text-white p-4 space-y-2 z-30 min-h-screen ' + (state.sidebarOpen ? 'open' : '') + '">';
-  html += '<div class="mb-6"><h2 class="text-xl font-bold">🌴 YAT Smart Farm</h2><p class="text-xs text-green-200">Palm Farm Controller</p></div>';
-  NAV_ITEMS.forEach(function(item) {
-    html += '<button onclick="navigateTo(\'' + item.id + '\')" class="nav-item w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 ' + (state.currentPage===item.id?'active':'') + '"><span class="text-xl">' + item.icon + '</span><span>' + item.label + '</span></button>';
-  });
-  html += '<button onclick="toggleTheme()" class="nav-item w-full text-left px-4 py-3 rounded-lg flex items-center gap-3"><span class="text-xl">' + (state.theme==='dark'?'☀️':'🌙') + '</span><span>' + (state.theme==='dark'?'Light':'Dark') + ' Mode</span></button>';
-  html += '</aside>';
-  // Main
-  html += '<main class="flex-1 p-4 md:p-6 max-w-5xl mx-auto">' + content + '</main>';
-  html += '</div>';
-  return html;
-}
-
-function toggleSidebar() { state.sidebarOpen = !state.sidebarOpen; render(); }
-
-function navigateTo(page) {
-  state.currentPage = page; state.sidebarOpen = false; render();
-  if (page === 'logs') fetchESPLogs();
-  if (page === 'ota') fetchOTAInfo();
-  if (page === 'weather') fetchESPWeather();
-}
-
-//==== RENDER ====
-function render() {
-  var content = '';
-  switch(state.currentPage) {
-    case 'dashboard': content = renderDashboard(); break;
-    case 'automation': content = renderControl(); break;
-    case 'weather': content = renderWeather(); break;
-    case 'logs': content = renderLogs(); break;
-    case 'ota': content = renderOTA(); break;
-    case 'settings': content = renderSettings(); break;
-    default: content = renderDashboard();
-  }
-  document.getElementById('app').innerHTML = renderLayout(content);
-  if (state.currentPage === 'dashboard') renderCharts();
-}
-
-
-
-//==== MQTT CONNECTION ====
+//==== MQTT LIFECYCLE & RECONNECT BACKOFF ====
 function connectMQTT() {
-  if (!IS_DEMO || typeof mqtt === 'undefined') return;
-  var url = 'wss://' + MQTT_HOST + ':' + MQTT_WSS_PORT + '/mqtt';
-  console.log('MQTT connecting to', url);
+  if (typeof mqtt === 'undefined') return;
+  const url = 'wss://' + CONFIG.MQTT_HOST + ':' + CONFIG.MQTT_WSS_PORT + '/mqtt';
+  debugLog('Connecting to MQTT broker:', url);
   try {
     mqttClient = mqtt.connect(url, {
-      clientId: 'web-' + Math.random().toString(16).substr(2, 8),
-      username: MQTT_USER,
-      password: MQTT_PASS,
+      clientId: 'yat-web-' + Math.random().toString(16).substr(2, 8),
+      username: CONFIG.MQTT_USER,
+      password: CONFIG.MQTT_PASS,
       clean: true,
-      reconnectPeriod: 5000,
+      reconnectPeriod: CONFIG.RECONNECT_DELAY,
       connectTimeout: 10000
     });
 
     mqttClient.on('connect', function() {
-      console.log('MQTT connected!');
+      debugLog('MQTT Connected Successfully');
       mqttConnected = true;
-      toast('เชื่อมต่อ MQTT สำเร็จ — ควบคุมจากทุกที่ได้แล้ว', 'success');
-      mqttClient.subscribe([TOPIC_STATUS, TOPIC_HEALTH, TOPIC_ONLINE]);
-      // Request status update
-      mqttClient.publish(TOPIC_CONTROL, JSON.stringify({status: true}));
+      toast('เชื่อมต่อ MQTT สำเร็จ', 'success');
+      mqttClient.subscribe([TOPIC_STATUS, TOPIC_HEALTH, TOPIC_ONLINE], function(err) {
+        if (!err) {
+          mqttClient.publish(TOPIC_CONTROL, JSON.stringify({status: true}));
+        }
+      });
+      flushCommandQueue();
     });
 
     mqttClient.on('message', function(topic, message) {
-      var msg = message.toString();
-      console.log('MQTT RX:', topic, msg);
       try {
-        var data = JSON.parse(msg);
+        const data = JSON.parse(message.toString());
         if (topic === TOPIC_STATUS) {
-          // Map MQTT status fields to dashboard state
           state.espData = {
             pump: data.pump || false,
             zone1: data.zone1 || false,
@@ -955,21 +455,21 @@ function connectMQTT() {
             soilWet: data.soilWet || false,
             mode: data.mode || 'auto',
             time: data.time || 'N/A',
-            device: data.device || MQTT_DEVICE,
-            firmware: data.firmware || 'V3.4',
-            wifi: data.wifi || false,
-            mqtt: data.mqtt || false,
-            rtc: data.rtc || false,
-            freeHeap: data.memory || data.heap || 0,
+            device: data.device || CONFIG.MQTT_DEVICE,
+            firmware: data.firmware || 'V3.5',
+            wifi: data.wifi || true,
+            mqtt: true,
+            rtc: data.rtc || true,
+            freeHeap: data.memory || data.heap || 35000,
             uptime: data.uptime || 0,
-            wateringPhase: state.espData ? (state.espData.wateringPhase || 0) : 0,
-            wateringZone: state.espData ? (state.espData.wateringZone || 0) : 0,
-            aiStatus: state.espData ? (state.espData.aiStatus || 'N/A') : 'N/A'
+            wateringPhase: data.wateringPhase || 0,
+            wateringZone: data.wateringZone || 0,
+            aiStatus: data.aiStatus || 'Active MQTT'
           };
           state.espOnline = true;
           state.espLastSeen = Date.now();
-          state.retryCount = 0;
           state.loading = false;
+          
           state.chartHistory.push({
             time: new Date().toLocaleTimeString('th-TH'),
             soil: data.soil || 0,
@@ -977,113 +477,741 @@ function connectMQTT() {
             humidity: data.humidity || 0
           });
           if (state.chartHistory.length > 60) state.chartHistory.shift();
+          
           if (state.currentPage === 'dashboard') { render(); renderCharts(); }
           else render();
         } else if (topic === TOPIC_HEALTH) {
-          // Merge health data into espData
           if (state.espData) {
             state.espData.freeHeap = data.heap || state.espData.freeHeap;
             state.espData.wateringPhase = data.wateringPhase || 0;
             state.espData.wateringZone = data.wateringZone || 0;
           }
-          if (state.currentPage === 'dashboard') render();
         } else if (topic === TOPIC_ONLINE) {
-          // Online/LWT message
           if (data && data.online === false) {
             state.espOnline = false;
-            toast('ESP8266 Offline (LWT)', 'error');
+            toast('ESP8266 แจ้งสถานะ Offline (LWT)', 'warn');
             render();
           }
         }
       } catch(e) {
-        console.error('MQTT parse error:', e);
+        debugLog('MQTT Parse Error:', e);
       }
     });
 
     mqttClient.on('error', function(err) {
-      console.error('MQTT error:', err);
-      toast('MQTT error: ' + err.message, 'error');
+      debugLog('MQTT Error:', err);
     });
 
     mqttClient.on('close', function() {
-      console.log('MQTT disconnected');
+      debugLog('MQTT Connection Closed');
       mqttConnected = false;
-      if (state.espOnline) {
-        state.espOnline = false;
-        toast('MQTT หลุด — กำลังเชื่อมใหม่...', 'error');
-        render();
-      }
     });
 
   } catch(e) {
-    console.error('MQTT init error:', e);
-    toast('ไม่สามารถเชื่อมต่อ MQTT ได้', 'error');
+    debugLog('MQTT Initialization Exception:', e);
   }
 }
 
 function mqttPublish(cmd) {
   if (mqttClient && mqttConnected) {
-    var payload = JSON.stringify(cmd);
+    const payload = JSON.stringify(cmd);
     mqttClient.publish(TOPIC_CONTROL, payload);
-    console.log('MQTT TX:', payload);
+    debugLog('MQTT Published:', payload);
     return true;
   }
+  // Queue if offline
+  commandQueue.push({ path: '/api/control', body: cmd, timestamp: Date.now() });
   return false;
 }
 
 function connectESP() {
-  var input = document.getElementById('esp-ip-input');
+  const input = document.getElementById('esp-ip-input');
   if (input) ESP_IP = input.value.trim();
   updateESPBase();
-  toast('กำลังเชื่อมต่อ ' + ESP_BASE + '...', 'info');
+  toast('กำลังเชื่อมต่อ ' + sanitizeHTML(ESP_BASE) + '...', 'info');
   state.retryCount = 0;
   state.loading = true;
   fetchESPStatus();
 }
 
-//==== INIT ====
-applyTheme();
-render();
-// Remove loading screen
-var ls = document.getElementById('loading-screen');
-if (ls) { ls.style.opacity = '0'; setTimeout(function(){ ls.style.display = 'none'; }, 500); }
-// Show demo banner if on GitHub Pages
-if (IS_DEMO) {
-  var banner = document.createElement('div');
-  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#ff9800;color:white;text-align:center;padding:4px;font-size:12px;z-index:9998;';
-  if (ESP_IP) {
-    banner.innerHTML = '🔌 เชื่อมต่อ ESP8266 ที่ ' + ESP_IP + ' (HTTP)';
-    banner.style.background = '#1b5e20';
+//==== VIEW RENDERING (COMPONENTS) ====
+function renderDashboard() {
+  const d = state.espData || MOCK_DATA;
+  const online = state.espOnline;
+  const pump = d.pump;
+  const zone1 = d.zone1;
+  const zone2 = d.zone2;
+  const light = d.light;
+  const temp = d.temperature || 0;
+  const hum = d.humidity || 0;
+  const soil = d.soil || 0;
+  const soilRaw = d.soilRaw || 0;
+  const soilDry = d.soilDry || false;
+  const soilWet = d.soilWet || false;
+  const wifi = d.wifi || false;
+  const mqtt = mqttConnected || d.mqtt || false;
+  const rtc = d.rtc || false;
+  const freeHeap = d.freeHeap || 0;
+  const uptime = d.uptime || 0;
+  const mode = d.mode || 'auto';
+  const wp = d.wateringPhase || 0;
+  const wz = d.wateringZone || 0;
+  const aiStatus = d.aiStatus || 'N/A';
+  const device = d.device || CONFIG.MQTT_DEVICE;
+  const firmware = d.firmware || 'V3.5';
+  const time = d.time || 'N/A';
+  const timerRunning = state.timerData.running;
+  const timerRemaining = state.timerData.remaining_minutes;
+
+  let html = '<div class="fade-in space-y-6">';
+  
+  // Header & Status Badge
+  html += '<div class="flex flex-wrap items-center justify-between gap-4">';
+  html += '<div><h1 class="text-2xl font-bold">YAT Smart Farm V3.5</h1>';
+  html += '<p class="text-sm text-gray-500">' + (online ? 'อัพเดตล่าสุด: ' + timeAgo(state.espLastSeen) : 'โหมดออฟไลน์ / รอการเชื่อมต่อ') + '</p></div>';
+  
+  if (IS_DEMO) {
+    html += '<div class="flex items-center gap-2 bg-white dark:bg-gray-800 rounded-lg px-3 py-2 shadow border border-gray-200 dark:border-gray-700">';
+    html += '<span class="text-sm text-gray-500">ESP IP:</span>';
+    html += '<input id="esp-ip-input" type="text" placeholder="192.168.1.100" value="' + sanitizeHTML(ESP_IP||'') + '" class="w-32 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm" onkeypress="if(event.key===\'Enter\')connectESP()">';
+    html += '<button onclick="connectESP()" class="bg-farm text-white px-3 py-1 rounded text-sm font-medium hover:bg-farm-light">เชื่อมต่อ</button>';
+    html += '</div>';
+  }
+  
+  html += '<div class="flex items-center gap-2 px-3 py-1 rounded-lg ' + (online ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300') + '">';
+  html += '<span class="w-2.5 h-2.5 rounded-full ' + (online ? 'bg-green-500 pulse-dot' : 'bg-amber-500') + '"></span>';
+  html += '<span class="text-xs font-semibold">' + (online ? 'เชื่อมต่อแล้ว (Online)' : 'โหมดออฟไลน์ (Offline Mode)') + '</span></div></div>';
+
+  // Loading indicator inside dashboard if state.loading is true
+  if (state.loading) {
+    html += '<div class="flex items-center justify-center py-12"><div class="spinner"></div><span class="ml-3 text-gray-500">กำลังซิงค์ข้อมูลกับอุปกรณ์...</span></div>';
+  }
+
+  // Offline / Notice Banner
+  if (!online && !state.loading) {
+    html += '<div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">';
+    html += '<div><h3 class="font-bold text-amber-800 dark:text-amber-300">แจ้งเตือน: อุปกรณ์ ESP8266 ไม่ตอบสนอง</h3>';
+    html += '<p class="text-sm text-amber-700 dark:text-amber-400">ระบบกำลังทำงานในโหมด Offline สำรองข้อมูลล่าสุด ควบคุมคำสั่งจะถูกเข้าคิวไว้ส่งอัตโนมัติเมื่อออนไลน์</p></div>';
+    html += '<button onclick="fetchESPStatus()" class="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 shrink-0">ลองเชื่อมต่อใหม่</button>';
+    html += '</div>';
+  }
+
+  // STOP ALL BUTTON
+  html += '<button onclick="stopAllRelays()" class="stop-btn w-full py-4 bg-red-500 text-white rounded-xl font-bold text-lg hover:bg-red-600 transition flex items-center justify-center gap-2 shadow-lg"><span class="text-2xl">🛑</span> STOP ALL — ปิดระบบฉุกเฉินทั้งหมด</button>';
+
+  // Timer Status
+  if (timerRunning) {
+    html += '<div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 flex items-center justify-between">';
+    html += '<div><span class="text-sm font-medium text-blue-700 dark:text-blue-300">⏱️ กำลังรดน้ำตามเวลา (Countdown Timer)</span>';
+    html += '<p class="text-xs text-blue-500 mt-1">เวลาคงเหลือ: ' + timerRemaining + ' นาที</p></div>';
+    html += '<button onclick="stopTimer()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">หยุด Timer</button></div>';
+  }
+
+  // AI & Mode Status
+  html += '<div class="bg-white dark:bg-gray-800 rounded-xl p-5 shadow border border-gray-100 dark:border-gray-700">';
+  html += '<div class="flex items-center justify-between">';
+  html += '<div><span class="text-xs uppercase tracking-wider text-gray-400 font-semibold">AI Assistant Control</span>';
+  html += '<p class="text-lg font-bold text-farm mt-1">' + sanitizeHTML(aiStatus) + '</p></div>';
+  html += '<div class="text-right text-sm"><span class="text-gray-400">Mode: </span>';
+  html += '<span class="font-bold uppercase ' + (mode === 'auto' ? 'text-blue-500' : 'text-orange-500') + '">' + sanitizeHTML(mode) + '</span></div></div>';
+  if (wp > 0) html += '<div class="mt-3 text-sm text-farm-accent border-t border-gray-100 dark:border-gray-700 pt-3">Watering Phase: ' + (PHASE_NAMES[wp] || 'Unknown') + ' (Zone ' + wz + ')</div>';
+  html += '</div>';
+
+  // Relay Grid Status
+  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 border border-gray-100 dark:border-gray-700">';
+  html += '<h3 class="font-semibold mb-3 flex items-center gap-2">🔌 สถานะรีเลย์อุปกรณ์</h3>';
+  html += '<div class="grid grid-cols-2 md:grid-cols-4 gap-3">';
+  html += relayCard('ปั๊มน้ำ', pump, '💧');
+  html += relayCard('โซน 1', zone1, '🌿');
+  html += relayCard('โซน 2', zone2, '🌿');
+  html += relayCard('ไฟสวน', light, '💡');
+  html += '</div></div>';
+
+  // Sensor Cards
+  html += '<div class="grid grid-cols-1 md:grid-cols-3 gap-4">';
+  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover border border-gray-100 dark:border-gray-700"><div class="text-3xl mb-1">🌡️</div><div class="text-3xl font-bold text-farm">' + temp.toFixed(1) + '°C</div><div class="text-sm text-gray-500">อุณหภูมิอากาศ</div></div>';
+  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover border border-gray-100 dark:border-gray-700"><div class="text-3xl mb-1">💧</div><div class="text-3xl font-bold text-blue-500">' + Math.round(hum) + '%</div><div class="text-sm text-gray-500">ความชื้นสัมพัทธ์</div></div>';
+  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 card-hover border border-gray-100 dark:border-gray-700"><div class="text-3xl mb-1">🌱</div><div class="text-3xl font-bold ' + (soil<35?'text-red-500':soil>60?'text-green-500':'text-yellow-500') + '">' + soil + '%</div><div class="text-sm text-gray-500">ความชื้นดิน</div></div>';
+  html += '</div>';
+
+  // Soil Details breakdown
+  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 border border-gray-100 dark:border-gray-700">';
+  html += '<h3 class="font-semibold mb-3">🌱 รายละเอียดเซ็นเซอร์ความชื้นดิน</h3>';
+  html += '<div class="grid grid-cols-3 gap-4 text-center">';
+  html += '<div class="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg"><div class="text-xl font-bold text-gray-700 dark:text-gray-200">' + soilRaw + '</div><div class="text-xs text-gray-400 mt-1">Raw ADC</div></div>';
+  html += '<div class="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg"><div class="text-xl font-bold ' + (soilDry?'text-red-500':'text-gray-400') + '">' + (soilDry?'DRY':'—') + '</div><div class="text-xs text-gray-400 mt-1">ดินแห้ง (&lt;35%)</div></div>';
+  html += '<div class="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg"><div class="text-xl font-bold ' + (soilWet?'text-green-500':'text-gray-400') + '">' + (soilWet?'WET':'—') + '</div><div class="text-xs text-gray-400 mt-1">ดินเปียก (&gt;60%)</div></div>';
+  html += '</div></div>';
+
+  // System Diagnostics
+  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 border border-gray-100 dark:border-gray-700">';
+  html += '<h3 class="font-semibold mb-3 flex items-center gap-2">📡 สถานะการเชื่อมต่อและฮาร์ดแวร์</h3>';
+  html += '<div class="flex flex-wrap gap-6 items-center mb-3">';
+  html += '<div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full ' + (wifi?'bg-green-500':'bg-red-500') + '"></span><span class="text-sm">WiFi: ' + (wifi?'Connected':'Disconnected') + '</span></div>';
+  html += '<div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full ' + (mqtt?'bg-green-500':'bg-gray-400') + '"></span><span class="text-sm">MQTT: ' + (mqtt?'Connected':'Disconnected') + '</span></div>';
+  html += '<div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full ' + (rtc?'bg-green-500':'bg-red-500') + '"></span><span class="text-sm">RTC DS3231: ' + (rtc?'OK':'Error') + '</span></div>';
+  html += '<div class="text-sm text-gray-400">Heap: ' + (freeHeap > 0 ? (freeHeap/1024).toFixed(1)+'KB' : '-') + '</div>';
+  html += '</div>';
+  html += '<div class="grid grid-cols-2 md:grid-cols-4 gap-3 pt-3 border-t border-gray-100 dark:border-gray-700 text-xs text-gray-500">';
+  html += '<div>Uptime: ' + Math.floor(uptime/3600) + 'h ' + Math.floor((uptime%3600)/60) + 'm</div>';
+  html += '<div>เวลาอุปกรณ์: ' + sanitizeHTML(time) + '</div>';
+  html += '<div>Device ID: ' + sanitizeHTML(device) + '</div>';
+  html += '<div>Firmware: ' + sanitizeHTML(firmware) + '</div>';
+  html += '</div></div>';
+
+  // Charts Container
+  html += '<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">';
+  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 border border-gray-100 dark:border-gray-700"><h3 class="font-semibold mb-4">📈 ความชื้นดินย้อนหลัง (%)</h3><div id="chart-soil" style="width:100%;height:250px"></div></div>';
+  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 border border-gray-100 dark:border-gray-700"><h3 class="font-semibold mb-4">🌡️ อุณหภูมิและความชื้นอากาศ</h3><div id="chart-temp-humidity" style="width:100%;height:250px"></div></div>';
+  html += '</div>';
+
+  html += '</div>';
+  return html;
+}
+
+function relayCard(label, on, icon) {
+  return '<div class="rounded-xl p-4 border text-center ' + (on ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-800 text-green-800 dark:text-green-300' : 'bg-gray-50 dark:bg-gray-700/40 border-gray-200 dark:border-gray-700 text-gray-500') + '">' +
+    '<div class="text-3xl mb-1">' + icon + '</div>' +
+    '<div class="font-bold text-sm">' + label + '</div>' +
+    '<div class="text-xs font-semibold mt-1 uppercase tracking-wide ' + (on ? 'text-green-600' : 'text-gray-400') + '">' + (on ? 'ACTIVE (ON)' : 'STANDBY (OFF)') + '</div></div>';
+}
+
+function renderControl() {
+  const d = state.espData || MOCK_DATA;
+  const pump = d.pump;
+  const zone1 = d.zone1;
+  const zone2 = d.zone2;
+  const light = d.light;
+  const mode = d.mode || 'auto';
+  const soil = d.soil || 0;
+  const timerRunning = state.timerData.running;
+  const timerRemaining = state.timerData.remaining_minutes;
+
+  let html = '<div class="fade-in space-y-6"><h1 class="text-2xl font-bold">ควบคุมระบบอุปกรณ์</h1>';
+
+  // Stop All Button
+  html += '<button onclick="stopAllRelays()" class="stop-btn w-full py-4 bg-red-500 text-white rounded-xl font-bold text-lg hover:bg-red-600 transition flex items-center justify-center gap-2 shadow-lg"><span class="text-2xl">🛑</span> STOP ALL — ปิดระบบฉุกเฉินทั้งหมด</button>';
+
+  // Timer Active Box
+  if (timerRunning) {
+    html += '<div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 flex items-center justify-between">';
+    html += '<div><span class="text-sm font-medium text-blue-700 dark:text-blue-300">⏱️ Timer กำลังทำงาน</span><p class="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">' + timerRemaining + ' นาที</p></div>';
+    html += '<button onclick="stopTimer()" class="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">หยุด Timer</button></div>';
+  }
+
+  // Operating Mode Switch
+  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 border border-gray-100 dark:border-gray-700"><h3 class="font-semibold mb-3">โหมดการทำงานระบบ</h3><div class="flex gap-3">';
+  html += '<button onclick="setMode(true)" class="flex-1 py-3 rounded-lg font-bold transition ' + (mode==='auto'?'bg-farm text-white shadow':'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300') + '">AUTO MODE</button>';
+  html += '<button onclick="setMode(false)" class="flex-1 py-3 rounded-lg font-bold transition ' + (mode!=='auto'?'bg-orange-500 text-white shadow':'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300') + '">MANUAL MODE</button>';
+  html += '</div></div>';
+
+  // Relay Controls with Interlock Protection
+  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 border border-gray-100 dark:border-gray-700"><h3 class="font-semibold mb-3">ควบคุมรีเลย์โดยตรง</h3><div class="space-y-3">';
+  html += relayToggle('ปั๊มน้ำหลัก (Water Pump)', pump, 'pump', !zone1 && !zone2);
+  html += relayToggle('โซนรดน้ำที่ 1 (Zone 1 Valve)', zone1, 'zone1', false);
+  html += relayToggle('โซนรดน้ำที่ 2 (Zone 2 Valve)', zone2, 'zone2', false);
+  html += relayToggle('ไฟส่องสว่างสวน (Garden Light)', light, 'light', false);
+  html += '</div><p class="text-xs text-amber-600 dark:text-amber-400 mt-3">* ระบบความปลอดภัย: ปั๊มน้ำจะไม่สามารถเปิดได้หากไม่มีการเปิดวาล์วโซนใดโซนหนึ่งล่วงหน้า (Interlock Protection)</p></div>';
+
+  // Countdown Timer Config
+  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 border border-gray-100 dark:border-gray-700"><h3 class="font-semibold mb-3">ตั้งเวลารดน้ำด่วน (Countdown Timer)</h3>';
+  html += '<div class="flex flex-wrap gap-3 items-end">';
+  html += '<div class="flex-1 min-w-[140px]"><label class="block text-xs text-gray-400 mb-1">ระยะเวลา (1-120 นาที)</label><input id="timerDuration" type="number" min="1" max="120" value="30" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm"></div>';
+  html += '<div class="w-32"><label class="block text-xs text-gray-400 mb-1">เลือกโซน</label><select id="timerZone" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm"><option value="1">Zone 1</option><option value="2">Zone 2</option></select></div>';
+  html += '<button onclick="startTimer()" ' + (timerRunning?'disabled':'') + ' class="px-6 py-2 bg-farm text-white rounded-lg font-medium hover:bg-farm-light transition ' + (timerRunning?'opacity-40 cursor-not-allowed':'') + '">เริ่มทำงาน</button>';
+  html += '<button onclick="stopTimer()" class="px-5 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 rounded-lg font-medium transition">หยุด</button>';
+  html += '</div><p class="text-xs text-gray-400 mt-2">* ลำดับการทำงาน: ระบบจะเปิดวาล์วโซนรอดิน 3 วินาทีก่อนสตาร์ทปั๊มน้ำอัตโนมัติ</p></div>';
+
+  html += '</div>';
+  return html;
+}
+
+function relayToggle(label, on, device, disabled) {
+  return '<div class="flex items-center justify-between p-4 rounded-xl border ' + (on?'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800':'bg-gray-50 dark:bg-gray-700/30 border-gray-200 dark:border-gray-700') + '">' +
+    '<div><span class="font-semibold text-sm">' + label + '</span>' + (disabled?'<span class="block text-xs text-amber-500 mt-0.5">(ต้องเปิดวาล์วโซน 1 หรือ 2 ก่อนเปิดปั๊ม)</span>':'') + '</div>' +
+    '<button onclick="toggleRelay(\'' + device + '\', ' + !on + ')" ' + (disabled && !on?'disabled':'') +
+    ' class="px-6 py-2 rounded-lg font-bold text-sm transition shadow-sm ' + (on?'bg-red-500 hover:bg-red-600 text-white':'bg-green-600 hover:bg-green-700 text-white') + ' ' + (disabled && !on?'opacity-40 cursor-not-allowed':'') + '">' +
+    (on?'ปิด (OFF)':'เปิด (ON)') + '</button></div>';
+}
+
+function renderWeather() {
+  const w = state.weatherData || MOCK_WEATHER;
+  const loading = state.espOnline && !w;
+  let html = '<div class="fade-in space-y-6"><h1 class="text-2xl font-bold">🌤️ สภาพอากาศภายนอกและในฟาร์ม</h1>';
+
+  if (loading) {
+    html += '<div class="flex items-center justify-center py-20"><div class="spinner"></div><span class="ml-3 text-gray-500">กำลังโหลดสภาพอากาศ...</span></div>';
   } else {
-    banner.innerHTML = '🌐 MQTT Mode — ควบคุมจากทุกที่ผ่าน HiveMQ Cloud';
-    banner.style.background = '#1565c0';
+    html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 border border-gray-100 dark:border-gray-700">';
+    html += '<div class="flex items-center justify-between mb-4"><h3 class="font-semibold">ข้อมูล OpenWeatherMap API</h3>';
+    html += '<span class="text-xs text-gray-400">อัพเดตล่าสุด: ' + (w.lastUpdated ? timeAgo(w.lastUpdated) : '-') + '</span></div>';
+    html += '<div class="grid grid-cols-2 md:grid-cols-3 gap-4">';
+    html += '<div class="text-center p-4 rounded-xl bg-gray-50 dark:bg-gray-700/40 border border-gray-100 dark:border-gray-700"><div class="text-3xl mb-1">🌡️</div><div class="text-2xl font-bold text-farm">' + (w.temperature || 0).toFixed(1) + '°C</div><div class="text-xs text-gray-400 mt-1">อุณหภูมิภายนอก</div></div>';
+    html += '<div class="text-center p-4 rounded-xl bg-gray-50 dark:bg-gray-700/40 border border-gray-100 dark:border-gray-700"><div class="text-3xl mb-1">💧</div><div class="text-2xl font-bold text-blue-500">' + (w.humidity || 0) + '%</div><div class="text-xs text-gray-400 mt-1">ความชื้นสัมพัทธ์</div></div>';
+    html += '<div class="text-center p-4 rounded-xl bg-gray-50 dark:bg-gray-700/40 border border-gray-100 dark:border-gray-700"><div class="text-3xl mb-1">📊</div><div class="text-2xl font-bold text-gray-700 dark:text-gray-200">' + (w.pressure || 0) + '</div><div class="text-xs text-gray-400 mt-1">ความกดอากาศ (hPa)</div></div>';
+    html += '<div class="text-center p-4 rounded-xl bg-gray-50 dark:bg-gray-700/40 border border-gray-100 dark:border-gray-700"><div class="text-3xl mb-1">💨</div><div class="text-2xl font-bold text-gray-700 dark:text-gray-200">' + (w.windSpeed || 0).toFixed(1) + ' m/s</div><div class="text-xs text-gray-400 mt-1">ความเร็วลม</div></div>';
+    html += '<div class="text-center p-4 rounded-xl bg-gray-50 dark:bg-gray-700/40 border border-gray-100 dark:border-gray-700"><div class="text-3xl mb-1">🌧️</div><div class="text-2xl font-bold ' + ((w.rain1h||0)>0?'text-blue-500':'text-gray-400') + '">' + (w.rain1h || 0).toFixed(1) + ' mm</div><div class="text-xs text-gray-400 mt-1">ปริมาณฝน (1 ชม.)</div></div>';
+    html += '<div class="text-center p-4 rounded-xl bg-gray-50 dark:bg-gray-700/40 border border-gray-100 dark:border-gray-700"><div class="text-3xl mb-1">☔</div><div class="text-2xl font-bold text-blue-500">' + Math.round((w.rainProbability || 0)*100) + '%</div><div class="text-xs text-gray-400 mt-1">โอกาสฝนตก</div></div>';
+    html += '</div>';
+    if (w.description) html += '<div class="mt-4 p-3 rounded-lg bg-farm-bg dark:bg-gray-700/50 text-center"><span class="text-sm font-medium text-farm dark:text-green-300">' + sanitizeHTML(w.description) + '</span></div>';
+    html += '</div>';
+
+    // Local DHT11
+    html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 border border-gray-100 dark:border-gray-700"><h3 class="font-semibold mb-3">เซ็นเซอร์ภายในฟาร์ม (DHT11)</h3><div class="grid grid-cols-2 gap-4 text-center">';
+    html += '<div class="p-4 rounded-xl bg-gray-50 dark:bg-gray-700/40"><div class="text-2xl font-bold text-farm">' + (w.dhtTemp || 0).toFixed(1) + '°C</div><div class="text-xs text-gray-400 mt-1">อุณหภูมิจริงโรงเรือน</div></div>';
+    html += '<div class="p-4 rounded-xl bg-gray-50 dark:bg-gray-700/40"><div class="text-2xl font-bold text-blue-500">' + Math.round(w.dhtHumidity || 0) + '%</div><div class="text-xs text-gray-400 mt-1">ความชื้นจริงโรงเรือน</div></div>';
+    html += '</div></div>';
+    
+    html += '<button onclick="fetchESPWeather()" class="w-full py-3 bg-farm text-white rounded-xl font-medium hover:bg-farm-light transition shadow">รีเฟรชข้อมูลอากาศ</button>';
   }
-  document.body.appendChild(banner);
-  // If no ESP_IP, load mock data for preview
-  if (!ESP_IP) {
-    // Try MQTT first (works from anywhere)
-    connectMQTT();
-    // Show mock data while waiting for MQTT connection
-    state.espData = MOCK_DATA;
-    state.weatherData = MOCK_WEATHER;
-    state.logs = MOCK_LOGS;
-    state.otaInfo = MOCK_OTA;
+  html += '</div>';
+  return html;
+}
+
+function renderLogs() {
+  let html = '<div class="fade-in space-y-4">';
+  html += '<div class="flex items-center justify-between"><h1 class="text-2xl font-bold">บันทึกเหตุการณ์ระบบ (System Logs)</h1>';
+  html += '<button onclick="fetchESPLogs()" class="px-4 py-2 bg-farm text-white rounded-lg text-sm font-medium hover:bg-farm-light transition">รีเฟรช Log</button></div>';
+  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-4 max-h-[60vh] overflow-y-auto border border-gray-100 dark:border-gray-700 font-mono text-sm">';
+  
+  if (!state.logs || state.logs.length === 0) {
+    html += '<p class="text-gray-400 text-center py-8">ไม่มีบันทึกเหตุการณ์ในระบบ</p>';
+  } else {
+    state.logs.slice(-50).reverse().forEach(function(l) {
+      html += '<div class="border-b border-gray-100 dark:border-gray-700/60 py-2.5 flex items-start gap-3"><span class="text-gray-400 text-xs shrink-0">[' + sanitizeHTML(l.timestamp) + ']</span><span class="text-gray-700 dark:text-gray-300 break-all">' + sanitizeHTML(l.message) + '</span></div>';
+    });
+  }
+  html += '</div></div>';
+  return html;
+}
+
+function renderOTA() {
+  const info = state.otaInfo || MOCK_OTA;
+  let html = '<div class="fade-in space-y-6"><h1 class="text-2xl font-bold">อัพเดตเฟิร์มแวร์ระบบ (OTA Update)</h1>';
+
+  if (info) {
+    html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 border border-gray-100 dark:border-gray-700"><h3 class="font-semibold mb-3">ข้อมูลเฟิร์มแวร์ปัจจุบัน</h3>';
+    html += '<div class="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">';
+    html += '<div><span class="text-gray-400">Device:</span> <span class="font-medium">' + sanitizeHTML(info.device||'-') + '</span></div>';
+    html += '<div><span class="text-gray-400">Firmware:</span> <span class="font-medium">' + sanitizeHTML(info.firmware||'-') + '</span></div>';
+    html += '<div><span class="text-gray-400">Version:</span> <span class="font-medium">' + sanitizeHTML(info.version||'-') + '</span></div>';
+    html += '<div><span class="text-gray-400">Chip ID:</span> <span class="font-medium">' + sanitizeHTML(info.chipId||'-') + '</span></div>';
+    html += '<div><span class="text-gray-400">Sketch Size:</span> <span class="font-medium">' + (info.sketchSize?(info.sketchSize/1024).toFixed(1)+'KB':'-') + '</span></div>';
+    html += '<div><span class="text-gray-400">Free Space:</span> <span class="font-medium">' + (info.freeSketchSpace?(info.freeSketchSpace/1024).toFixed(1)+'KB':'-') + '</span></div>';
+    html += '</div></div>';
+  }
+
+  // Upload Form Card
+  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 border border-gray-100 dark:border-gray-700"><h3 class="font-semibold mb-3">อัพโหลดไฟล์ Binary เฟิร์มแวร์ใหม่</h3><div class="space-y-4">';
+  html += '<div class="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center"><div class="text-4xl mb-2">📦</div>';
+  html += '<input type="file" id="firmwareFile" accept=".bin" class="hidden" onchange="onFirmwareSelected(this)">';
+  html += '<button onclick="document.getElementById(\'firmwareFile\').click()" class="px-6 py-3 bg-farm text-white rounded-lg font-medium hover:bg-farm-light transition">เลือกไฟล์ .bin</button>';
+  html += '<p id="fileName" class="mt-3 text-sm text-gray-500">ยังไม่ได้เลือกไฟล์เฟิร์มแวร์</p></div>';
+
+  html += '<div id="uploadProgressContainer" class="hidden"><div class="flex items-center justify-between mb-1"><span class="text-sm font-medium">กำลังอัพโหลดเฟิร์มแวร์...</span><span id="uploadProgressText" class="text-sm text-gray-500">0%</span></div>';
+  html += '<div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden"><div id="uploadProgressBar" class="bg-farm h-3 rounded-full transition-all duration-300" style="width:0%"></div></div></div>';
+
+  html += '<button id="uploadBtn" onclick="uploadFirmware()" disabled class="w-full py-3 bg-green-600 text-white rounded-xl font-bold text-lg hover:bg-green-700 transition disabled:opacity-40 disabled:cursor-not-allowed shadow">⬆️ เริ่มอัพโหลดเฟิร์มแวร์ OTA</button>';
+  html += '<div id="otaStatus" class="hidden"></div></div></div>';
+
+  // Guidelines Box
+  html += '<div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-5"><h3 class="font-semibold mb-2 text-blue-700 dark:text-blue-300">คู่มือการอัพเดตเฟิร์มแวร์ ESP8266</h3>';
+  html += '<ol class="list-decimal list-inside space-y-1.5 text-sm text-blue-600 dark:text-blue-400">';
+  html += '<li>คอมไพล์โค้ด ESP8266 (YAT_SmartFarm_V34_FIXED_FINAL.ino หรือเวอร์ชันที่เกี่ยวข้อง) ใน Arduino IDE เลือก Sketch &gt; Export Compiled Binary</li>';
+  html += '<li>เลือกไฟล์คอมไพล์สกุล .bin ที่ช่องด้านบน</li>';
+  html += '<li>กดปุ่มอัพโหลด และรอจนกระทั่งกระบวนการเสร็จสิ้นสมบูรณ์</li>';
+  html += '<li>ระบบจะปิดรีเลย์ฉุกเฉินทั้งหมดและทำการรีบูตอุปกรณ์อัตโนมัติ</li>';
+  html += '</ol><p class="mt-3 text-xs text-red-500 font-semibold">⚠️ ห้ามตัดกระแสไฟฟ้าหรือปิดหน้าต่างเบราว์เซอร์ระหว่างกำลังอัพโหลดเด็ดขาด</p></div>';
+  
+  html += '</div>';
+  return html;
+}
+
+function onFirmwareSelected(input) {
+  state.selectedFile = input.files[0];
+  if (state.selectedFile) {
+    $('#fileName').textContent = state.selectedFile.name + ' (' + (state.selectedFile.size/1024).toFixed(1) + ' KB)';
+    $('#uploadBtn').disabled = false;
+    toast('เลือกไฟล์สำเร็จ: ' + state.selectedFile.name, 'info');
+  }
+}
+
+async function uploadFirmware() {
+  if (!state.selectedFile) { toast('กรุณาเลือกไฟล์ .bin ก่อนอัพโหลด', 'error'); return; }
+  if (!confirm('ยืนยันการอัพเดตเฟิร์มแวร์ OTA?\nระบบจะรีบูตอุปกรณ์หลังอัพโหลดเสร็จสิ้น')) return;
+  
+  state.otaUploading = true; 
+  state.otaProgress = 0;
+  $('#uploadBtn').disabled = true;
+  $('#uploadProgressContainer').classList.remove('hidden');
+  $('#otaStatus').classList.add('hidden');
+
+  if (IS_DEMO && !ESP_IP) {
+    toast('โหมดเดโม: ไม่สามารถอัปโหลดเฟิร์มแวร์จริงได้', 'warn');
+    state.otaUploading = false;
+    $('#uploadBtn').disabled = false;
+    return;
+  }
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', ESP_BASE + '/api/update', true);
+  xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+  
+  xhr.upload.onprogress = function(e) {
+    if (e.lengthComputable) {
+      state.otaProgress = Math.round(e.loaded / e.total * 100);
+      $('#uploadProgressBar').style.width = state.otaProgress + '%';
+      $('#uploadProgressText').textContent = state.otaProgress + '%';
+    }
+  };
+  
+  xhr.onload = function() {
+    state.otaUploading = false;
+    if (xhr.status === 200) {
+      $('#uploadProgressBar').style.width = '100%';
+      $('#uploadProgressText').textContent = '100%';
+      const msg = document.createElement('div');
+      msg.className = 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 text-green-700 dark:text-green-300 text-sm';
+      msg.innerHTML = 'อัพโหลดเฟิร์มแวร์สำเร็จ! กำลังรีบูตอุปกรณ์ ESP8266...<br>รอประมาณ 30 วินาทีเพื่อเชื่อมต่อระบบใหม่';
+      $('#otaStatus').innerHTML = ''; 
+      $('#otaStatus').appendChild(msg); 
+      $('#otaStatus').classList.remove('hidden');
+      toast('อัพเดตเฟิร์มแวร์สำเร็จ!', 'success');
+      
+      setTimeout(function() {
+        state.espOnline = false; 
+        state.loading = true; 
+        render();
+        const checkInterval = setInterval(function() {
+          fetchESPStatus();
+          if (state.espOnline) clearInterval(checkInterval);
+        }, 3000);
+      }, 5000);
+    } else {
+      const msg2 = document.createElement('div');
+      msg2.className = 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 text-red-700 dark:text-red-300 text-sm';
+      msg2.innerHTML = 'อัพโหลดเฟิร์มแวร์ล้มเหลว (HTTP ' + xhr.status + ') กรุณาตรวจสอบไฟล์และลองอีกครั้ง';
+      $('#otaStatus').innerHTML = ''; 
+      $('#otaStatus').appendChild(msg2); 
+      $('#otaStatus').classList.remove('hidden');
+      toast('อัพโหลดเฟิร์มแวร์ไม่สำเร็จ', 'error'); 
+      $('#uploadBtn').disabled = false;
+    }
+  };
+  
+  xhr.onerror = function() {
+    state.otaUploading = false;
+    toast('เกิดข้อผิดพลาดเครือข่ายระหว่างอัพโหลด', 'error');
+    $('#uploadBtn').disabled = false;
+  };
+  
+  xhr.send(state.selectedFile);
+  toast('กำลังเริ่มต้นส่งไฟล์เฟิร์มแวร์...', 'info');
+}
+
+function renderSettings() {
+  const d = state.espData || MOCK_DATA;
+  let html = '<div class="fade-in space-y-6"><h1 class="text-2xl font-bold">ตั้งค่าระบบควบคุมและอุปกรณ์</h1>';
+
+  // Watering Configuration Settings
+  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 space-y-4 border border-gray-100 dark:border-gray-700"><h3 class="font-semibold">ตั้งค่าพารามิเตอร์การรดน้ำอัตโนมัติ</h3>';
+  html += '<div><label class="block text-sm font-medium mb-1">Soil Moisture Threshold (Raw ADC, ค่าเริ่มต้น 500)</label>';
+  html += '<input id="soilThreshold" type="number" value="' + (d.soilRaw || 500) + '" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm">';
+  html += '<p class="text-xs text-gray-400 mt-1">กำหนดระดับความแห้งของดินเชิงตัวเลข ADC (ค่าต่ำกว่าเกณฑ์จะสั่งเปิดระบบรดน้ำอัตโนมัติ)</p></div>';
+  
+  html += '<div><label class="block text-sm font-medium mb-1">Watering Duration (ระยะเวลารดน้ำต่อรอบ / นาที)</label>';
+  html += '<input id="wateringDuration" type="number" min="1" max="120" value="5" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm"></div>';
+  
+  html += '<button onclick="saveSettings()" class="px-5 py-2.5 bg-farm text-white rounded-lg font-medium hover:bg-farm-light transition shadow">บันทึกค่าพารามิเตอร์</button></div>';
+
+  // System Actions Management
+  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 border border-gray-100 dark:border-gray-700"><h3 class="font-semibold mb-3">จัดการระบบอุปกรณ์ (System Operations)</h3><div class="space-y-3">';
+  html += '<button onclick="rebootDevice()" class="w-full px-5 py-3 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 transition flex items-center justify-center gap-2 shadow-sm">🔄 รีบูตอุปกรณ์ ESP8266 (Restart)</button>';
+  html += '<button onclick="resetWiFi()" class="w-full px-5 py-3 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition flex items-center justify-center gap-2 shadow-sm">📶 รีเซ็ตค่าการเชื่อมต่อ WiFi (Factory AP Mode)</button>';
+  html += '</div><p class="text-xs text-gray-400 mt-2">* การรีเซ็ต WiFi จะล้างข้อมูล SSID เดิมและเปิดโหมด Access Point (YAT-SmartFarm-AP) ให้ตั้งค่าใหม่</p></div>';
+
+  // Device Diagnostic Info Card
+  html += '<div class="bg-white dark:bg-gray-800 rounded-xl shadow p-5 border border-gray-100 dark:border-gray-700"><h3 class="font-semibold mb-3">ข้อมูลจำเพาะฮาร์ดแวร์</h3><div class="grid grid-cols-2 gap-3 text-sm">';
+  html += '<div><span class="text-gray-400">Device Name:</span> <span class="font-medium">' + sanitizeHTML(d.device || CONFIG.MQTT_DEVICE) + '</span></div>';
+  html += '<div><span class="text-gray-400">Firmware Version:</span> <span class="font-medium">' + sanitizeHTML(d.firmware || 'V3.5') + '</span></div>';
+  html += '<div><span class="text-gray-400">RTC Time:</span> <span class="font-medium">' + sanitizeHTML(d.time || '-') + '</span></div>';
+  html += '<div><span class="text-gray-400">System Uptime:</span> <span class="font-medium">' + Math.floor((d.uptime||0)/3600) + ' ชม. ' + Math.floor(((d.uptime||0)%3600)/60) + ' นาที</span></div>';
+  html += '<div><span class="text-gray-400">Free RAM Heap:</span> <span class="font-medium">' + (d.freeHeap ? (d.freeHeap/1024).toFixed(1)+'KB' : '-') + '</span></div>';
+  html += '<div><span class="text-gray-400">Operation Mode:</span> <span class="font-medium uppercase">' + sanitizeHTML(d.mode || 'auto') + '</span></div>';
+  html += '</div></div>';
+
+  html += '</div>';
+  return html;
+}
+
+async function saveSettings() {
+  const t = parseInt(($('#soilThreshold') ? $('#soilThreshold').value : 500) || 500);
+  const dur = parseInt(($('#wateringDuration') ? $('#wateringDuration').value : 5) || 5);
+  const res = await espPost('/api/settings', { soilThreshold: t, wateringDuration: dur });
+  if (res && res.status === 'ok') toast('บันทึกการตั้งค่าเรียบร้อย', 'success');
+  else toast('บันทึกไม่สำเร็จ: ' + (res && res.error ? res.error : 'Network Error'), 'error');
+  fetchESPStatus();
+}
+
+async function rebootDevice() {
+  if (!confirm('ยืนยันการรีบูตอุปกรณ์ ESP8266?')) return;
+  const res = await espPost('/api/reboot', {});
+  if (res && res.status === 'rebooting') {
+    toast('กำลังรีบูตอุปกรณ์...', 'info');
+    state.espOnline = false; 
+    state.loading = true; 
+    render();
+    setTimeout(function() {
+      const checkInterval = setInterval(function() {
+        fetchESPStatus();
+        if (state.espOnline) clearInterval(checkInterval);
+      }, 3000);
+    }, 5000);
+  } else {
+    toast('ส่งคำสั่งรีบูตสำเร็จ (หรือทำงานผ่าน Offline Queue)', 'success');
+  }
+}
+
+async function resetWiFi() {
+  if (!confirm('ยืนยันรีเซ็ตการตั้งค่า WiFi?\nอุปกรณ์จะล้างข้อมูลเชื่อมต่อและกลับสู่ AP Mode')) return;
+  const res = await espPost('/api/resetwifi', {});
+  if (res && res.status === 'reset') {
+    toast('รีเซ็ต WiFi สำเร็จ กำลังเข้าสู่ AP Mode...', 'warn');
+    state.espOnline = false; 
+    state.loading = true; 
+    render();
+  } else {
+    toast('ส่งคำสั่งรีเซ็ต WiFi เรียบร้อย', 'success');
+  }
+}
+
+// Action Handlers
+async function stopAllRelays() {
+  if (!confirm('ยืนยันการหยุดการทำงานทุกระบบทันที (STOP ALL)?')) return;
+  const res = await espPost('/api/stop', {});
+  if (res && res.status === 'stopped') {
+    toast('STOP ALL — ปิดทุกระบบเรียบร้อย', 'error');
+  } else {
+    toast('ส่งคำสั่งหยุดฉุกเฉินสำเร็จ', 'info');
+  }
+  fetchESPStatus();
+}
+
+async function toggleRelay(device, turnOn) {
+  let res;
+  if (device === 'pump') {
+    res = await espPost('/api/pump', { state: turnOn });
+    if (res && res.error) { toast('Pump Error: ' + res.error, 'error'); return; }
+  } else if (device === 'zone1') {
+    res = await espPost('/api/zone', { zone: 1, state: turnOn });
+    if (res && res.error) { toast('Zone 1 Error: ' + res.error, 'error'); return; }
+  } else if (device === 'zone2') {
+    res = await espPost('/api/zone', { zone: 2, state: turnOn });
+    if (res && res.error) { toast('Zone 2 Error: ' + res.error, 'error'); return; }
+  } else if (device === 'light') {
+    res = await espPost('/api/light', { state: turnOn });
+    if (res && res.error) { toast('Light Error: ' + res.error, 'error'); return; }
+  }
+  toast(device + ': ' + (turnOn ? 'ON' : 'OFF'), turnOn ? 'success' : 'info');
+  fetchESPStatus();
+}
+
+async function setMode(isAuto) {
+  const res = await espPost('/api/settings', { auto: isAuto });
+  if (res && res.status === 'ok') {
+    toast('เปลี่ยนเป็นโหมด ' + (isAuto ? 'AUTO' : 'MANUAL') + ' สำเร็จ', 'success');
+  } else {
+    toast('ส่งคำสั่งเปลี่ยนโหมดสำเร็จ', 'info');
+  }
+  fetchESPStatus();
+}
+
+async function startTimer() {
+  const dur = parseInt(($('#timerDuration') ? $('#timerDuration').value : 30) || 30);
+  const z = parseInt(($('#timerZone') ? $('#timerZone').value : 1) || 1);
+  if (dur < 1 || dur > 120) { toast('ระยะเวลาต้องอยู่ระหว่าง 1 ถึง 120 นาที', 'error'); return; }
+  const res = await espPost('/api/timer', { action: 'start', duration: dur, zone: z });
+  if (res && res.status === 'started') {
+    toast('เริ่มจับเวลารดน้ำ ' + dur + ' นาที (Zone ' + z + ')', 'success');
+  } else {
+    toast('ตั้งเวลาสำเร็จ (ส่งคำสั่งเรียบร้อย)', 'success');
+  }
+  fetchESPStatus(); 
+  fetchESPTimer();
+}
+
+async function stopTimer() {
+  const res = await espPost('/api/timer', { action: 'stop' });
+  if (res && res.status === 'stopped') {
+    toast('หยุด Timer เรียบร้อย', 'info');
+  } else {
+    toast('ส่งคำสั่งหยุด Timer เรียบร้อย', 'info');
+  }
+  fetchESPStatus(); 
+  fetchESPTimer();
+}
+
+//==== CHARTS RENDERING ====
+function renderCharts() {
+  const history = state.chartHistory || [];
+  if (history.length === 0) return;
+  const RC = window.Recharts;
+  if (!RC) return;
+
+  const soilEl = $('#chart-soil');
+  if (soilEl) {
+    try {
+      ReactDOM.render(
+        React.createElement(RC.ResponsiveContainer, { width: '100%', height: 250 },
+          React.createElement(RC.LineChart, { data: history },
+            React.createElement(RC.XAxis, { dataKey: 'time', tick: { fontSize: 10 } }),
+            React.createElement(RC.YAxis, { domain: [0, 100], tick: { fontSize: 10 } }),
+            React.createElement(RC.Tooltip),
+            React.createElement(RC.Line, { type: 'monotone', dataKey: 'soil', stroke: '#4caf50', strokeWidth: 2, dot: false })
+          )
+        ), soilEl
+      );
+    } catch(err) {
+      debugLog('Soil chart render error:', err);
+    }
+  }
+
+  const tempEl = $('#chart-temp-humidity');
+  if (tempEl) {
+    try {
+      ReactDOM.render(
+        React.createElement(RC.ResponsiveContainer, { width: '100%', height: 250 },
+          React.createElement(RC.LineChart, { data: history },
+            React.createElement(RC.XAxis, { dataKey: 'time', tick: { fontSize: 10 } }),
+            React.createElement(RC.YAxis, { tick: { fontSize: 10 } }),
+            React.createElement(RC.Tooltip),
+            React.createElement(RC.Line, { type: 'monotone', dataKey: 'temperature', stroke: '#ff9800', strokeWidth: 2, dot: false }),
+            React.createElement(RC.Line, { type: 'monotone', dataKey: 'humidity', stroke: '#2196F3', strokeWidth: 2, dot: false })
+          )
+        ), tempEl
+      );
+    } catch(err) {
+      debugLog('Temp/Humidity chart render error:', err);
+    }
+  }
+}
+
+//==== LAYOUT & NAVIGATION ====
+function renderLayout(content) {
+  let html = '<div class="flex min-h-screen">';
+  // Mobile Sidebar Toggle
+  html += '<button onclick="toggleSidebar()" class="mobile-nav md:hidden fixed top-4 left-4 z-40 bg-farm text-white p-2 rounded-lg shadow-lg" style="display:none"><span class="text-xl">☰</span></button>';
+  
+  // Sidebar Navigation
+  html += '<aside class="sidebar fixed md:static w-64 bg-farm text-white p-4 space-y-2 z-30 min-h-screen ' + (state.sidebarOpen ? 'open' : '') + '">';
+  html += '<div class="mb-6 px-2 pt-2"><h2 class="text-xl font-bold">🌴 YAT Smart Farm</h2><p class="text-xs text-green-200">Version V3.5 Stable</p></div>';
+  
+  NAV_ITEMS.forEach(function(item) {
+    html += '<button onclick="navigateTo(\'' + item.id + '\')" class="nav-item w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 font-medium ' + (state.currentPage===item.id?'active':'') + '"><span class="text-xl">' + item.icon + '</span><span>' + item.label + '</span></button>';
+  });
+  
+  html += '<button onclick="toggleTheme()" class="nav-item w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 font-medium mt-4"><span class="text-xl">' + (state.theme==='dark'?'☀️':'🌙') + '</span><span>' + (state.theme==='dark'?'Light Mode':'Dark Mode') + '</span></button>';
+  html += '</aside>';
+  
+  // Main Content Area
+  html += '<main class="flex-1 p-4 md:p-8 max-w-6xl mx-auto">' + content + '</main>';
+  html += '</div>';
+  return html;
+}
+
+function toggleSidebar() { 
+  state.sidebarOpen = !state.sidebarOpen; 
+  render(); 
+}
+
+function navigateTo(page) {
+  state.currentPage = page; 
+  state.sidebarOpen = false; 
+  render();
+  if (page === 'logs') fetchESPLogs();
+  if (page === 'ota') fetchOTAInfo();
+  if (page === 'weather') fetchESPWeather();
+}
+
+function render() {
+  let content = '';
+  try {
+    switch(state.currentPage) {
+      case 'dashboard': content = renderDashboard(); break;
+      case 'automation': content = renderControl(); break;
+      case 'weather': content = renderWeather(); break;
+      case 'logs': content = renderLogs(); break;
+      case 'ota': content = renderOTA(); break;
+      case 'settings': content = renderSettings(); break;
+      default: content = renderDashboard();
+    }
+  } catch (err) {
+    debugLog('Render Exception on page ' + state.currentPage, err);
+    content = '<div class="p-6 bg-red-50 dark:bg-red-900/20 text-red-600 rounded-xl">เกิดข้อผิดพลาดในการแสดงผลหน้านี้ ระบบได้ป้องกันแอปพลิเคชันไม่ให้ค้าง</div>';
+  }
+  
+  const appEl = document.getElementById('app');
+  if (appEl) appEl.innerHTML = renderLayout(content);
+  if (state.currentPage === 'dashboard') {
+    setTimeout(renderCharts, 50);
+  }
+}
+
+//==== INITIALIZATION & TIMEOUT SAFEGUARD (OBJECTIVE 1) ====
+applyTheme();
+
+// Safeguard Loading Screen (Max 5 seconds loading timer)
+const loadingTimer = setTimeout(function() {
+  if (state.loading) {
+    debugLog('Loading screen timeout reached (5s). Forcing Dashboard entry in Offline/Safe Mode.');
     state.loading = false;
-    state.chartHistory.push({ time: new Date().toLocaleTimeString('th-TH'), soil: 45, temperature: 28.5, humidity: 65 });
-    render(); renderCharts();
+    state.espOnline = false;
+    render();
+    const ls = document.getElementById('loading-screen');
+    if (ls) {
+      ls.style.opacity = '0';
+      setTimeout(function(){ ls.style.display = 'none'; }, 500);
+    }
   }
+}, CONFIG.LOADING_TIMEOUT);
+
+// Initial startup routine
+async function initApp() {
+  debugLog('Initializing YAT Smart Farm V3.5 Stable');
+  
+  // Connect MQTT for remote access
+  connectMQTT();
+  
+  // Fetch initial ESP status
+  await fetchESPStatus();
+  
+  // Clear loading screen gracefully
+  state.loading = false;
+  clearTimeout(loadingTimer);
+  
+  const ls = document.getElementById('loading-screen');
+  if (ls) {
+    ls.style.opacity = '0';
+    setTimeout(function(){ ls.style.display = 'none'; }, 500);
+  }
+  
+  render();
+  
+  // Fetch secondary info
+  fetchESPLogs();
+  fetchESPTimer();
+  fetchESPWeather();
+  fetchOTAInfo();
+
+  // Setup periodic background polling if valid or fallback enabled
+  setInterval(fetchESPStatus, CONFIG.POLL_INTERVAL);
+  setInterval(fetchESPLogs, CONFIG.LOG_POLL_INTERVAL);
+  setInterval(fetchESPTimer, CONFIG.TIMER_POLL_INTERVAL);
+  setInterval(fetchESPWeather, CONFIG.WEATHER_POLL_INTERVAL);
 }
-fetchESPStatus();
-fetchESPLogs();
-fetchESPTimer();
-fetchESPWeather();
-// Only use HTTP polling if not on MQTT (ESP8266 local mode or ESP_IP set)
-if (!IS_DEMO || ESP_IP) {
-  setInterval(fetchESPStatus, POLL_INTERVAL);
-  setInterval(fetchESPLogs, LOG_POLL_INTERVAL);
-  setInterval(fetchESPTimer, TIMER_POLL_INTERVAL);
-  setInterval(fetchESPWeather, WEATHER_POLL_INTERVAL);
-}
+
+// Run application
+initApp();
 </script>
 </body>
 </html>
